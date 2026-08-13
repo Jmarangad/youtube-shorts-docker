@@ -1,0 +1,204 @@
+"""Download today's trending Shorts and detect each video's language.
+
+Reads the JSON reports written to ``reports/`` on the given day, collects
+the distinct video IDs across all of them, downloads each as an MP4 with
+yt-dlp, then runs OpenAI Whisper's ``detect_language`` on the audio to
+identify the spoken language.
+
+The bundled static-ffmpeg binaries are put on PATH so both yt-dlp (for the
+MP4 merge) and whisper (for audio decode) can find ``ffmpeg``/``ffprobe``.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+logger = logging.getLogger("agent.downloader")
+
+_REPORT_GLOB = "trending-shorts-*.json"
+
+
+def _bootstrap_certificates() -> None:
+    """Point stdlib/urllib SSL at certifi's CA bundle (macOS Pythons lack it)."""
+    import ssl
+    try:
+        import certifi
+    except ImportError:
+        return
+    ssl_path = certifi.where()
+    if "SSL_CERT_FILE" not in os.environ:
+        os.environ["SSL_CERT_FILE"] = ssl_path
+    if "REQUESTS_CA_BUNDLE" not in os.environ:
+        os.environ["REQUESTS_CA_BUNDLE"] = ssl_path
+
+
+_bootstrap_certificates()
+
+
+@dataclass
+class DownloadResult:
+    video_id: str
+    title: str
+    url: str
+    file: Optional[str] = None
+    language: Optional[str] = None
+    error: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "video_id": self.video_id,
+            "title": self.title,
+            "url": self.url,
+            "file": self.file,
+            "language": self.language,
+            "error": self.error,
+        }
+
+
+def _ffmpeg_bin_dir() -> str:
+    try:
+        from static_ffmpeg import run
+        ffmpeg_path, _ = run.get_or_fetch_platform_executables_else_raise()
+        return os.path.dirname(ffmpeg_path)
+    except Exception:
+        return ""
+
+
+def _ensure_ffmpeg_on_path() -> str:
+    bin_dir = _ffmpeg_bin_dir()
+    if bin_dir and bin_dir not in os.environ["PATH"]:
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
+    return bin_dir
+
+
+def report_files(reports_dir: str | Path, day: Optional[date] = None) -> list[Path]:
+    """Report JSON files created on ``day`` (default: today, local time)."""
+    day = day or date.today()
+    root = Path(reports_dir)
+    files = []
+    for path in root.glob(_REPORT_GLOB):
+        created = datetime.fromtimestamp(path.stat().st_mtime).date()
+        if created == day:
+            files.append(path)
+    files.sort(key=lambda p: p.stat().st_mtime)
+    return files
+
+
+def collect_videos(files: list[Path]) -> list[dict]:
+    """Distinct videos (id, title, url) across the given reports."""
+    seen: dict[str, dict] = {}
+    for path in files:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("skipping unreadable report %s: %s", path, exc)
+            continue
+        for item in data.get("top") or []:
+            video_id = item.get("video_id")
+            if not video_id:
+                continue
+            seen.setdefault(video_id, {
+                "id": video_id,
+                "title": item.get("title") or video_id,
+                "url": item.get("url")
+                       or f"https://www.youtube.com/watch?v={video_id}",
+            })
+    return list(seen.values())
+
+
+def download_mp4s(videos: list[dict], out_dir: str | Path,
+                  limit: Optional[int] = None) -> list[DownloadResult]:
+    """Download each distinct video as an MP4, returning results."""
+    from yt_dlp import YoutubeDL
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    _ensure_ffmpeg_on_path()
+
+    opts = {
+        "format": "best[ext=mp4]/best",
+        "merge_output_format": "mp4",
+        "outtmpl": str(out / "%(id)s.%(ext)s"),
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "ignoreerrors": True,
+        "socket_timeout": 30,
+        "ffmpeg_location": _ffmpeg_bin_dir(),
+    }
+
+    results: list[DownloadResult] = []
+    for video in videos[:limit] if limit else videos:
+        res = DownloadResult(video_id=video["id"], title=video["title"],
+                             url=video["url"])
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(video["url"], download=True)
+            if not info:
+                raise RuntimeError("download failed (unavailable or blocked)")
+            video_id = info.get("id") or video["id"]
+            ext = info.get("ext") or "mp4"
+            candidate = out / f"{video_id}.{ext}"
+            mp4 = out / f"{video_id}.mp4"
+            if candidate.exists():
+                res.file = str(candidate)
+            elif mp4.exists():
+                res.file = str(mp4)
+            else:
+                raise RuntimeError("download produced no output file")
+        except Exception as exc:
+            res.error = str(exc)
+            logger.warning("failed to download %s: %s", video["url"], exc)
+        results.append(res)
+    return results
+
+
+def detect_languages(results: list[DownloadResult],
+                     model_name: str = "tiny") -> None:
+    """Run whisper language detection on each downloaded video (in place)."""
+    import whisper
+
+    model = None
+    for res in results:
+        if not res.file or not Path(res.file).exists():
+            continue
+        try:
+            if model is None:
+                logger.info("loading whisper model %r (first run downloads it)",
+                            model_name)
+                model = whisper.load_model(model_name)
+            audio = whisper.load_audio(res.file)
+            audio = whisper.pad_or_trim(audio)
+            mel = whisper.log_mel_spectrogram(audio).to(model.device)
+            _, language_probs = model.detect_language(mel)
+            language = max(language_probs, key=language_probs.get)
+            res.language = language
+            logger.info("%s -> language %s", res.video_id, language)
+        except Exception as exc:
+            logger.warning("language detection failed for %s: %s",
+                           res.video_id, exc)
+
+
+def run_download(reports_dir: str | Path, out_dir: str | Path,
+                 day: Optional[date] = None, limit: Optional[int] = None,
+                 model_name: str = "tiny") -> dict:
+    """Full pipeline: read reports, download MP4s, detect languages."""
+    files = report_files(reports_dir, day)
+    videos = collect_videos(files)
+    logger.info("reports=%d distinct_videos=%d", len(files), len(videos))
+    results = download_mp4s(videos, out_dir, limit=limit)
+    detect_languages(results, model_name=model_name)
+    manifest = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "reports_dir": str(Path(reports_dir)),
+        "report_files": [str(p) for p in files],
+        "distinct_videos": len(videos),
+        "results": [r.to_dict() for r in results],
+    }
+    return manifest

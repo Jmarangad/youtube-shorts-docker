@@ -1,0 +1,32 @@
+services:
+  trending-agent:
+    build: ./trending-agent
+    image: youtube-trending-agent:latest
+    container_name: youtube-trending-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Kolkata
+    volumes:
+      - reports:/reports
+
+  downloader:
+    build: ./downloader
+    image: youtube-shorts-downloader:latest
+    container_name: youtube-shorts-downloader
+    restart: unless-stopped
+    depends_on:
+      - trending-agent
+    environment:
+      - TZ=Asia/Kolkata
+      - WHISPER_MODEL=${WHISPER_MODEL:-tiny}
+    volumes:
+      - reports:/reports
+      - downloads:/downloads
+      - whisper-cache:/root/.cache/whisper
+
+volumes:
+  reports:
+  downloads:
+  whisper-cache:
