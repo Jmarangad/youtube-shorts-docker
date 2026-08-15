@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import ssl
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -113,19 +114,53 @@ def collect_videos(files: list[Path]) -> list[dict]:
     return list(seen.values())
 
 
+def latest_titles(reports_dir: str | Path) -> dict[str, str]:
+    """video_id -> title from the trending agent's latest.json report."""
+    path = Path(reports_dir) / "latest.json"
+    titles: dict[str, str] = {}
+    if not path.exists():
+        return titles
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("skipping unreadable latest.json %s: %s", path, exc)
+        return titles
+    for item in data.get("top") or []:
+        video_id = item.get("video_id")
+        title = item.get("title")
+        if video_id and title:
+            titles[video_id] = title
+    return titles
+
+
+def _safe_filename(title: str, fallback: str) -> str:
+    """Turn a video title into a filesystem-safe base name."""
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title).strip()
+    name = re.sub(r"\s+", " ", name)
+    name = name.strip(". ")
+    if not name:
+        return fallback
+    return name[:120].strip(". ") or fallback
+
+
 def download_mp4s(videos: list[dict], out_dir: str | Path,
-                  limit: Optional[int] = None) -> list[DownloadResult]:
-    """Download each distinct video as an MP4, returning results."""
+                  limit: Optional[int] = None,
+                  titles: Optional[dict[str, str]] = None) -> list[DownloadResult]:
+    """Download each distinct video as an MP4, returning results.
+
+    Files are named from the trending agent's ``latest.json`` title
+    (falling back to the video ID when no title is available).
+    """
     from yt_dlp import YoutubeDL
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     _ensure_ffmpeg_on_path()
+    titles = titles or {}
 
-    opts = {
+    base_opts = {
         "format": "best[ext=mp4]/best",
         "merge_output_format": "mp4",
-        "outtmpl": str(out / "%(id)s.%(ext)s"),
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
@@ -135,18 +170,27 @@ def download_mp4s(videos: list[dict], out_dir: str | Path,
     }
 
     results: list[DownloadResult] = []
+    used_bases: dict[str, int] = {}
     for video in videos[:limit] if limit else videos:
         res = DownloadResult(video_id=video["id"], title=video["title"],
                              url=video["url"])
+        base = _safe_filename(titles.get(video["id"]) or video["title"],
+                              video["id"])
+        if base in used_bases:
+            used_bases[base] += 1
+            base = f"{base[:100].rstrip()} ({video['id']})"
+        else:
+            used_bases[base] = 1
+        opts = dict(base_opts)
+        opts["outtmpl"] = str(out / f"{base}.%(ext)s")
         try:
             with YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(video["url"], download=True)
             if not info:
                 raise RuntimeError("download failed (unavailable or blocked)")
-            video_id = info.get("id") or video["id"]
             ext = info.get("ext") or "mp4"
-            candidate = out / f"{video_id}.{ext}"
-            mp4 = out / f"{video_id}.mp4"
+            candidate = out / f"{base}.{ext}"
+            mp4 = out / f"{base}.mp4"
             if candidate.exists():
                 res.file = str(candidate)
             elif mp4.exists():
@@ -192,8 +236,10 @@ def run_download(reports_dir: str | Path, out_dir: str | Path,
     """Full pipeline: read reports, download MP4s, detect languages."""
     files = report_files(reports_dir, day)
     videos = collect_videos(files)
-    logger.info("reports=%d distinct_videos=%d", len(files), len(videos))
-    results = download_mp4s(videos, out_dir, limit=limit)
+    titles = latest_titles(reports_dir)
+    logger.info("reports=%d distinct_videos=%d titles_from_latest=%d",
+                len(files), len(videos), len(titles))
+    results = download_mp4s(videos, out_dir, limit=limit, titles=titles)
     detect_languages(results, model_name=model_name)
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),

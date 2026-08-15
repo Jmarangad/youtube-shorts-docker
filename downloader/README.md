@@ -31,6 +31,10 @@ Whisper downloads its model (`tiny` by default) on first run.
 Results are written to `downloads/manifest.json` — one entry per video with
 the file path, detected language, and any error.
 
+Downloaded files are named from the trending agent's `latest.json` report
+**title** (sanitized for the filesystem, with the video ID appended if a
+title collides), falling back to the video ID when no title is available.
+
 ## Deploying as a daily scheduled job
 
 Install a crontab entry that runs every day at 23:30 (after the day's hourly
