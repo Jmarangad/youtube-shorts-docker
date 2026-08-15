@@ -16,17 +16,21 @@ while ! ls /downloads/*.mp4 >/dev/null 2>&1; do
 done
 
 # Run once on startup so already-downloaded videos get dubbed immediately.
+# --clean deletes previously dubbed files so every run re-dubs afresh.
 python -m dubber \
     --downloads-dir /downloads \
     --out-dir /dubbed \
     --whisper-model "${WHISPER_MODEL:-base}" \
-    --voice "${DUB_VOICE:-hi-IN-MadhurNeural}" \
+    --clean \
+    --male-voice "${DUB_MALE_VOICE:-hi-IN-MadhurNeural}" \
+    --female-voice "${DUB_FEMALE_VOICE:-hi-IN-SwaraNeural}" \
+    --kids-voice "${DUB_KIDS_VOICE:-hi-IN-SwaraNeural}" \
     || echo "initial run failed"
 
 # Schedule the daily job (23:40 IST), after the downloader (23:30) finishes.
 cat > /etc/cron.d/dubber <<EOF
 SHELL=/bin/sh
-40 23 * * * root cd /app && python -m dubber --downloads-dir /downloads --out-dir /dubbed --whisper-model "${WHISPER_MODEL:-base}" --voice "${DUB_VOICE:-hi-IN-MadhurNeural}" >> /var/log/dubber.log 2>&1
+40 23 * * * root cd /app && python -m dubber --downloads-dir /downloads --out-dir /dubbed --whisper-model "${WHISPER_MODEL:-base}" --clean --male-voice "${DUB_MALE_VOICE:-hi-IN-MadhurNeural}" --female-voice "${DUB_FEMALE_VOICE:-hi-IN-SwaraNeural}" --kids-voice "${DUB_KIDS_VOICE:-hi-IN-SwaraNeural}" >> /var/log/dubber.log 2>&1
 EOF
 chmod 644 /etc/cron.d/dubber
 

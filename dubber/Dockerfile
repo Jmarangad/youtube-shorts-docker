@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir \
         edge-tts \
         deep-translator \
         static-ffmpeg \
+        numpy \
         certifi \
     && chmod +x /entrypoint.sh
 

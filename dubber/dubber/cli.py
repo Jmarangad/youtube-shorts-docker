@@ -54,7 +54,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--whisper-model", default="base",
                         help="whisper model for transcription (default base)")
     parser.add_argument("--voice", default="hi-IN-MadhurNeural",
-                        help="edge-tts Hindi voice (default hi-IN-MadhurNeural)")
+                        help="deprecated single voice; use the per-gender flags")
+    parser.add_argument("--male-voice", default=None,
+                        help="edge-tts Hindi voice for male segments "
+                             "(default hi-IN-MadhurNeural)")
+    parser.add_argument("--female-voice", default=None,
+                        help="edge-tts Hindi voice for female segments "
+                             "(default hi-IN-SwaraNeural)")
+    parser.add_argument("--kids-voice", default=None,
+                        help="edge-tts voice for undetermined-gender segments "
+                             "(default hi-IN-SwaraNeural pitched up)")
+    parser.add_argument("--clean", action="store_true",
+                        help="delete previously dubbed videos before dubbing")
     parser.add_argument("--install-cron", action="store_true",
                         help="install a daily (23:40) crontab entry")
     parser.add_argument("--cron-schedule", default="40 23 * * *",
@@ -72,8 +83,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0 if _add_cron(args.cron_schedule, args.downloads_dir,
                               args.out_dir) else 1
 
+    voice_overrides = {
+        "male": args.male_voice,
+        "female": args.female_voice,
+        "kids": args.kids_voice,
+    }
     manifest = run_dub(args.downloads_dir, args.out_dir, limit=args.limit,
-                       model_name=args.whisper_model, voice=args.voice)
+                       model_name=args.whisper_model, clean=args.clean,
+                       voice_overrides=voice_overrides)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "dub-manifest.json").write_text(

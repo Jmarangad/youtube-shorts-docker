@@ -15,10 +15,15 @@ Containerized deployment of three Python agents:
 - `downloader` reads the day's reports from the shared `reports` volume,
   downloads the distinct videos as MP4s to the `downloads` volume, and
   detects each video's language with Whisper.
-- `dubber` re-dubs each downloaded Short into Hindi: Whisper transcribes
-  the speech, Google Translate translates each segment, and edge-tts
-  (`hi-IN-MadhurNeural`) synthesizes the Hindi voice, which is muxed over
-  the original video track with ffmpeg into the `dubbed` volume.
+- `dubber` re-dubs each downloaded Short into Hindi with a gender-matched
+  voice: Whisper transcribes and analyses each segment's audio (pitch-based
+  male/female classification, animated-kids fallback), Google Translate
+  translates the speech, and edge-tts synthesizes the Hindi voice with
+  rate/pitch tuned to match the original speaker's tone. Song/music
+  segments keep the original audio so background music is preserved, and
+  overlapping/duplicate dialog is dropped. Output is muxed over the
+  original video track with ffmpeg into the `dubbed` volume. Each run
+  starts with `--clean`, deleting previously dubbed files.
 - Scheduling runs **inside** the containers via cron, so no host cron is
   needed.
 
