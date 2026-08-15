@@ -159,6 +159,8 @@ def run_upload(dubbed_dir: str | Path,
             uploaded = json.loads(manifest_path.read_text()).get("uploaded", {})
         except (OSError, json.JSONDecodeError):
             uploaded = {}
+    # Drop dry-run placeholders so a later real run re-attempts them.
+    uploaded = {k: v for k, v in uploaded.items() if v != "DRY_RUN"}
 
     creds = None
     if not dry_run:
