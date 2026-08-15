@@ -116,13 +116,17 @@ def find_videos(downloads_dir: str | Path) -> list[Path]:
 
 
 def clean_dubbed(out_dir: str | Path) -> int:
-    """Delete previously dubbed files so everything is re-dubbed."""
+    """Delete previously dubbed files so everything is re-dubbed.
+
+    Dubbed files keep the original video's filename, so every video file
+    in the out directory is a previously dubbed output.
+    """
     out = Path(out_dir)
     if not out.exists():
         return 0
     removed = 0
     for p in out.iterdir():
-        if p.name.endswith(".hindi.mp4") or p.name == "dub-manifest.json":
+        if p.is_file() and p.suffix.lower() in _VIDEO_EXTS:
             p.unlink(missing_ok=True)
             removed += 1
     for work in out.glob("*.work"):
@@ -185,6 +189,8 @@ def _synthesize(text: str, voice: str, out_wav: Path,
     text = text.strip()
     if not text:
         raise RuntimeError("empty text for TTS")
+    if not any(ch.isalnum() for ch in text):
+        raise RuntimeError("no synthesizable content in text")
     mp3 = out_wav.with_suffix(".mp3")
     last_error: Optional[Exception] = None
     for attempt in range(3):
@@ -317,15 +323,22 @@ def _build_audio(video: Path, segments: list[Segment], workdir: Path,
             gender = _gender_from_f0(analysis["f0"]) \
                 if analysis["voiced"] > 0.15 else "kids"
             rate, pitch = _tone_params(gender, seg, analysis)
-            wav = workdir / f"seg{i:04d}.{gender}.wav"
-            try:
-                _synthesize(_translate(seg.text), voices[gender]["name"], wav,
-                            rate=rate, pitch=pitch)
-            except Exception as exc:
-                logger.warning("%s seg%d tuned TTS failed (%s); "
-                               "retrying with default params",
-                               video.stem, i, exc)
-                _synthesize(_translate(seg.text), voices[gender]["name"], wav)
+            hindi_text = _translate(seg.text)
+            if hindi_text and any(ch.isalnum() for ch in hindi_text):
+                wav = workdir / f"seg{i:04d}.{gender}.wav"
+                try:
+                    _synthesize(hindi_text, voices[gender]["name"], wav,
+                                rate=rate, pitch=pitch)
+                except Exception as exc:
+                    logger.warning("%s seg%d tuned TTS failed (%s); "
+                                   "retrying with default params",
+                                   video.stem, i, exc)
+                    _synthesize(hindi_text, voices[gender]["name"], wav)
+            else:
+                logger.info("%s seg%d has no synthesizable text; "
+                            "keeping original audio", video.stem, i)
+                wav = workdir / f"seg{i:04d}.music.wav"
+                _extract_original(video, seg.start, seg.end, wav)
         inputs.append(str(wav))
         delay_ms = int(seg.start * 1000)
         delays.append(f"[{i + 1}:a]adelay={delay_ms}|{delay_ms}[d{i}]")
@@ -363,7 +376,7 @@ def dub_video(video: Path, out_dir: str | Path, model_name: str = "base",
     res = DubResult(video_id=video.stem, file=str(video))
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    out_path = out / f"{video.stem}.hindi.mp4"
+    out_path = out / video.name
     if out_path.exists():
         logger.info("%s: already dubbed; skipping", video.stem)
         res.out = str(out_path)

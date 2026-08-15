@@ -42,8 +42,9 @@ python -m dubber \
 | `--female-voice` | hi-IN-SwaraNeural | female-segment voice |
 | `--kids-voice` | hi-IN-SwaraNeural | undetermined-gender voice |
 
-Outputs: `<video-id>.hindi.mp4` and `dub-manifest.json` (per-video segment
-counts, music segments, and voice distribution).
+Outputs: each video's dubbed file keeps the **original filename**
+(`<video-id>.mp4`) in the `dubbed` volume, plus `dub-manifest.json` with
+per-video segment counts, music segments, and voice distribution.
 
 ## Notes
 
