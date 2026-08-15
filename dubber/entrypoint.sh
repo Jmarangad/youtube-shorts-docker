@@ -27,13 +27,16 @@ python -m dubber \
     --kids-voice "${DUB_KIDS_VOICE:-hi-IN-SwaraNeural}" \
     || echo "initial run failed"
 
-# Schedule the daily job (23:40 IST), after the downloader (23:30) finishes.
+# Schedule the hourly job (minute 15, after the downloader's minute-0 run).
+# No --clean: each hour only new/undubbed videos are processed; the startup
+# run above re-dubs everything fresh once per deploy.
 cat > /etc/cron.d/dubber <<EOF
 SHELL=/bin/sh
-40 23 * * * root cd /app && python -m dubber --downloads-dir /downloads --out-dir /dubbed --whisper-model "${WHISPER_MODEL:-base}" --clean --male-voice "${DUB_MALE_VOICE:-hi-IN-MadhurNeural}" --female-voice "${DUB_FEMALE_VOICE:-hi-IN-SwaraNeural}" --kids-voice "${DUB_KIDS_VOICE:-hi-IN-SwaraNeural}" >> /var/log/dubber.log 2>&1
+PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/sbin:/bin
+15 * * * * root cd /app && python -m dubber --downloads-dir /downloads --out-dir /dubbed --whisper-model "${WHISPER_MODEL:-base}" --male-voice "${DUB_MALE_VOICE:-hi-IN-MadhurNeural}" --female-voice "${DUB_FEMALE_VOICE:-hi-IN-SwaraNeural}" --kids-voice "${DUB_KIDS_VOICE:-hi-IN-SwaraNeural}" >> /var/log/dubber.log 2>&1
 EOF
 chmod 644 /etc/cron.d/dubber
 
 touch /var/log/dubber.log
-echo "[entrypoint] starting cron; daily 23:40 dubber job installed"
+echo "[entrypoint] starting cron; hourly dubber job installed"
 exec cron -f -L 2
