@@ -6,12 +6,20 @@ file). No API key is embedded or committed.
 Strategy for finding trending Shorts without the missing ``trending``
 feed endpoint:
 
-  * ``search.list`` (order=viewCount, videoDuration=short) collects the
-    most-viewed Shorts matching each query — these are the trending ones.
+  * ``videos.list`` (chart=mostPopular) is YouTube's own trend analysis —
+    the globally most-popular videos right now — from which Shorts
+    (<= max duration) are kept.
+  * ``search.list`` (order=viewCount, videoDuration=short) collects
+    recently-published (``publishedAfter``) viral Shorts worldwide. No
+    ``relevanceLanguage``/``regionCode`` is sent, so results span the
+    entire world.
   * ``videos.list`` enriches the candidates with view counts, durations,
-    channels and publish dates (the search endpoint returns no stats).
-  * ``videos.list`` (chart=mostPopular) adds the global most-popular
-    videos, from which Shorts (<= max duration) are kept.
+    channels, publish dates and the snippet's ``defaultAudioLanguage``
+    (the search endpoint returns no stats).
+
+Ranking uses a trend score = view_count / hours_since_publish, so Shorts
+surging *in the current hour* (recently published with high views) rank
+above all-time high-view videos.
 
 Quota notes (free tier = 10,000 units/day): ``search.list`` costs 100
 units per call and ``videos.list`` costs 1 unit per 50 ids, so hourly
@@ -28,7 +36,7 @@ import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -41,6 +49,14 @@ _ISO_DURATION_RE = re.compile(
     r"^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$"
 )
 _LIVE_MAP = {"upcoming": "is_upcoming", "live": "is_live"}
+
+
+def _iso_after(hours: int) -> Optional[str]:
+    """ISO-8601 timestamp for ``hours`` ago (for publishedAfter)."""
+    if hours <= 0:
+        return None
+    when = datetime.now(timezone.utc) - timedelta(hours=hours)
+    return when.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _load_dotenv() -> None:
@@ -96,6 +112,8 @@ def _to_entry(item: dict, source: str) -> Optional[dict]:
         "view_count": int(stats.get("viewCount") or 0),
         "duration": parse_iso_duration(details.get("duration")),
         "source": source,
+        "audio_language": snippet.get("defaultAudioLanguage") or "",
+        "default_language": snippet.get("defaultLanguage") or "",
     }
     published = snippet.get("publishedAt")
     if published:
@@ -150,13 +168,15 @@ class YouTubeAPI:
 
 
 class ShortScraper:
-    def __init__(self, pool_size: int = 40, lang: str = "en",
+    def __init__(self, pool_size: int = 40, lang: str = "",
                  geo_country: Optional[str] = None, timeout: int = 30,
-                 api_key: Optional[str] = None):
+                 api_key: Optional[str] = None,
+                 recent_hours: int = 24):
         self.pool_size = min(pool_size, _MAX_RESULTS)
         self.lang = lang
         self.geo_country = geo_country
         self.timeout = timeout
+        self.recent_hours = recent_hours
         self.search_queries: tuple[str, ...] = _SEARCH_QUERIES
         self.api = YouTubeAPI(api_key=api_key, timeout=timeout,
                               geo_country=geo_country)
@@ -169,9 +189,11 @@ class ShortScraper:
             "videoDuration": "short",
             "order": "viewCount",
             "maxResults": self.pool_size,
-            "relevanceLanguage": self.lang,
+            "publishedAfter": _iso_after(self.recent_hours),
             "regionCode": self.geo_country,
         }
+        if self.lang:
+            params["relevanceLanguage"] = self.lang
         data = self.api._get("search", params)
         ids = []
         for item in data.get("items") or []:

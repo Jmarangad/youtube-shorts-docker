@@ -11,12 +11,12 @@ chmod 600 /app/runenv.sh
 
 # Run once on startup so the very first report exists immediately.
 . /app/runenv.sh
-python -m agent --top 5 --language all --output /reports || echo "initial run failed"
+python -m agent --top 5 --language non-hindi --recent-hours 24 --output /reports || echo "initial run failed"
 
 # Schedule the hourly job (every hour at minute 0, IST).
 cat > /etc/cron.d/agent <<EOF
 SHELL=/bin/sh
-0 * * * * root . /app/runenv.sh && cd /app && python -m agent --top 5 --language all --output /reports >> /var/log/agent.log 2>&1
+0 * * * * root . /app/runenv.sh && cd /app && python -m agent --top 5 --language non-hindi --recent-hours 24 --output /reports >> /var/log/agent.log 2>&1
 EOF
 chmod 644 /etc/cron.d/agent
 

@@ -1,9 +1,10 @@
 # YouTube Trending Shorts Agent
 
-Finds YouTube's **top trending Shorts** using the official **YouTube Data
-API v3**. A single-purpose agent (Python) that collects candidate Shorts,
-ranks them by view count, and reports the top N to the console and as JSON.
-Designed to run on-demand or as a scheduled (cron) job.
+Finds the Shorts **trending in the current hour, across the entire world**
+using the official **YouTube Data API v3**. A single-purpose agent (Python)
+that collects candidate Shorts, ranks them by *trend velocity*, excludes
+Hindi, and reports the top N to the console and as JSON. Designed to run
+on-demand or as a scheduled (cron) job.
 
 ## API key
 
@@ -28,12 +29,21 @@ The official Data API avoids scraping: it is not bot-gated and needs no
 cookies or anti-bot handling. The API has no dedicated "trending Shorts"
 feed, so the agent:
 
-- `search.list` (`order=viewCount`, `videoDuration=short`) — the most-viewed
-  Shorts for each query, i.e. the trending ones.
-- `videos.list` — enriches candidates with view counts, durations, channels
-  and publish dates (the search endpoint returns no stats).
-- `videos.list` (`chart=mostPopular`) — adds the global most-popular videos,
-  keeping only Shorts (<= `--max-duration`).
+- `videos.list` (`chart=mostPopular`) — YouTube's own trend analysis: the
+  globally most-popular videos right now, keeping only Shorts
+  (<= `--max-duration`).
+- `search.list` (`order=viewCount`, `videoDuration=short`, `publishedAfter`)
+  — recently-published viral Shorts worldwide. No `relevanceLanguage`/
+  `regionCode` is sent, so candidates span the entire world.
+- `videos.list` — enriches candidates with view counts, durations, channels,
+  publish dates and `defaultAudioLanguage` (the search endpoint returns no
+  stats).
+
+Candidates are ranked by a **trend score** = views per hour since publish,
+so a Short uploaded an hour ago with 1M views ("trending in the current
+hour") outranks an older video with more total views. By default only
+non-Hindi Shorts are reported (Devanagari script, `defaultAudioLanguage='hi'`
+and romanized-Hindi titles are all excluded).
 
 Free quota is 10,000 units/day (`search.list` = 100 units, `videos.list` =
 1 unit), so hourly runs stay well within budget.
@@ -85,12 +95,13 @@ bundled `static-ffmpeg` wheel.
 | `--source auto\|trending\|hashtag\|search` | auto | auto: search, then most popular |
 | `--search-queries Q1,Q2,...` | built-in | comma-separated search queries for the `search` source |
 | `--pool-size N` | 40 | candidate pool per query (max 50) |
+| `--recent-hours N` | 24 | only consider Shorts published in the last N hours |
 | `--api-key KEY` | env | YouTube Data API v3 key (default: `YOUTUBE_API_KEY` or `.env`) |
 | `--min-views N` | 0 | ignore Shorts below this many views |
 | `--max-duration S` | 180 | max Short duration in seconds |
 | `--output DIR` | reports | JSON report directory |
-| `--lang LANG` | en | request language |
-| `--language LANG` | all | only keep videos in this language (`all` disables the filter; `en` filters for English) |
+| `--lang LANG` | (empty) | relevance language for requests; empty = entire world |
+| `--language LANG` | non-hindi | only keep videos matching this filter (`non-hindi` excludes Hindi; `all` disables the filter; `en` keeps English) |
 | `--geo-country CC` | – | region code for search/mostPopular (e.g. US) |
 | `--install-cron` | – | install a crontab entry |
 | `--cron-schedule SCHED` | `0 * * * *` | schedule used with `--install-cron` |

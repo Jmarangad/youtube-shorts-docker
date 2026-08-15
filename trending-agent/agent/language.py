@@ -9,6 +9,12 @@ filtering layers several cheap, robust signals:
      means the video is not English
   3. Hinglish token blocklist — romanized Hindi reads statistically English
   4. detector — only consulted when the title is long enough to trust
+
+Hindi detection (for the ``non-hindi`` filter) uses three signals:
+
+  1. audio language — ``defaultAudioLanguage == 'hi'`` from the API snippet
+  2. script check — Devanagari characters in the title are unambiguous Hindi
+  3. Hinglish token blocklist — romanized Hindi titles
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ _HINGLISH_TOKENS = {
 
 _SCRIPT_RE = re.compile(r"[a-z']+")
 _LATIN = "LATIN"
+_DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 _MIN_LATIN_RATIO = 0.98
 _MAX_DIACRITIC_RATIO = 0.15
 _DETECTOR_MIN_WORDS = 5
@@ -78,15 +85,40 @@ def is_english(title: str) -> bool:
     return True
 
 
-def matches_language(title: str, language: str) -> bool:
-    """True when the title matches the requested language filter."""
+def is_hindi(title: str, audio_language: str = "") -> bool:
+    """Heuristic check that a Short is Hindi.
+
+    Uses the API's ``defaultAudioLanguage`` when available, Devanagari
+    script in the title, and the romanized-Hindi (Hinglish) blocklist.
+    """
+    if audio_language:
+        lang = (audio_language or "").lower()
+        if lang == "hi" or lang.startswith("hi-"):
+            return True
     if not title:
         return False
-    language = (language or "en").strip().lower()
+    if _DEVANAGARI_RE.search(title):
+        return True
+    if _tokens(title) & _HINGLISH_TOKENS:
+        return True
+    return False
+
+
+def matches_language(title: str, language: str, audio_language: str = "") -> bool:
+    """True when the title matches the requested language filter.
+
+    ``language`` may be 'all'/'any' (accept everything), 'en' (English),
+    'non-hindi' (everything except Hindi), or a 2-letter code.
+    """
+    if not title:
+        return False
+    language = (language or "all").strip().lower()
     if language in ("all", "any", ""):
         return True
     if language == "en":
         return is_english(title)
+    if language in ("non-hindi", "non_hindi", "not-hindi"):
+        return not is_hindi(title, audio_language)
     try:
         return detect(title) == language
     except LangDetectException:

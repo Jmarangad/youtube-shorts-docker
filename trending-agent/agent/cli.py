@@ -54,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="comma-separated queries for the search source (default built-in)")
     parser.add_argument("--pool-size", type=int, default=40,
                         help="candidate pool per query (max 50, default 40)")
+    parser.add_argument("--recent-hours", type=int, default=24,
+                        help="only consider Shorts published in the last N hours (default 24)")
     parser.add_argument("--api-key", default=None,
                         help="YouTube Data API v3 key (default: YOUTUBE_API_KEY env var)")
     parser.add_argument("--min-views", type=int, default=0,
@@ -62,10 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="max Short duration in seconds (default 180)")
     parser.add_argument("--output", default="reports",
                         help="directory for JSON reports (default reports/)")
-    parser.add_argument("--lang", default="en", help="language for requests (default en)")
-    parser.add_argument("--language", default="all",
-                        help="only keep videos in this language (all default; 'en' filters "
-                             "for English)")
+    parser.add_argument("--lang", default="",
+                        help="relevance language for requests; empty = entire world (default)")
+    parser.add_argument("--language", default="non-hindi",
+                        help="only keep videos matching this filter (default 'non-hindi': "
+                             "exclude Hindi; 'all' keeps everything; 'en' keeps English)")
     parser.add_argument("--geo-country", default=None,
                         help="geo-bypass country code, e.g. US")
     parser.add_argument("--install-cron", action="store_true",
@@ -93,7 +96,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def find_top(args: argparse.Namespace) -> AgentResult:
     scraper = ShortScraper(pool_size=args.pool_size, lang=args.lang,
-                           geo_country=args.geo_country, api_key=args.api_key)
+                           geo_country=args.geo_country, api_key=args.api_key,
+                           recent_hours=args.recent_hours)
     if args.source == "search" and args.search_queries.strip():
         queries = [q.strip() for q in args.search_queries.split(",") if q.strip()]
         if queries:

@@ -8,8 +8,10 @@ Containerized deployment of three Python agents:
 | **downloader** | `youtube-shorts-downloader` | daily 23:30 IST |
 | **dubber** | `youtube-shorts-dubber` | daily 23:40 IST |
 
-- `trending-agent` uses the YouTube Data API v3 to find the top trending
-  Shorts and writes JSON reports to the shared `reports` volume.
+- `trending-agent` uses the YouTube Data API v3 to find Shorts trending in
+  the current hour across the entire world, ranks them by views-per-hour
+  velocity, excludes Hindi, and writes JSON reports to the shared `reports`
+  volume.
 - `downloader` reads the day's reports from the shared `reports` volume,
   downloads the distinct videos as MP4s to the `downloads` volume, and
   detects each video's language with Whisper.

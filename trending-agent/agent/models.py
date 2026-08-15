@@ -18,9 +18,11 @@ class Short:
     published: Optional[int] = None
     rank: int = 0
     source: str = ""
+    audio_language: str = ""
+    trend_score: Optional[float] = None
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "rank": self.rank,
             "video_id": self.video_id,
             "title": self.title,
@@ -31,7 +33,11 @@ class Short:
             "duration_s": self.duration,
             "published_timestamp": self.published,
             "source": self.source,
+            "audio_language": self.audio_language,
         }
+        if self.trend_score is not None:
+            data["trend_score"] = self.trend_score
+        return data
 
 
 @dataclass
