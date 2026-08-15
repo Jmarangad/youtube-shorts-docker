@@ -42,8 +42,25 @@ services:
       - dubbed:/dubbed
       - whisper-cache:/root/.cache/whisper
 
+  uploader:
+    build: ./uploader
+    image: youtube-shorts-uploader:latest
+    container_name: youtube-shorts-uploader
+    restart: unless-stopped
+    depends_on:
+      - dubber
+    environment:
+      - TZ=Asia/Kolkata
+      - YT_PRIVACY=${YT_PRIVACY:-unlisted}
+    volumes:
+      - dubbed:/dubbed
+      - reports:/reports:ro
+      - downloads:/downloads:ro
+      - uploader-config:/config
+
 volumes:
   reports:
   downloads:
   whisper-cache:
   dubbed:
+  uploader-config:

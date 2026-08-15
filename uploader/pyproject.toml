@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "youtube-shorts-uploader"
+version = "1.0.0"
+description = "Uploads Hindi-dubbed Shorts to YouTube (Hindi title + trending hashtags)."
+requires-python = ">=3.10"
+dependencies = [
+    "google-api-python-client>=2.100.0",
+    "google-auth-oauthlib>=1.1.0",
+    "google-auth-httplib2>=0.2.0",
+    "deep-translator>=1.11.0",
+    "certifi>=2024.0.0",
+]
+
+[project.scripts]
+youtube-shorts-uploader = "uploader.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["uploader*"]
