@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "youtube-shorts-dubber"
+version = "1.0.0"
+description = "Analyzes downloaded Shorts and re-dubs their voice track in Hindi."
+requires-python = ">=3.10"
+dependencies = [
+    "openai-whisper>=20231117",
+    "edge-tts>=6.1.0",
+    "deep-translator>=1.11.0",
+    "static-ffmpeg>=3.0.0",
+    "certifi>=2024.0.0",
+]
+
+[project.scripts]
+youtube-shorts-dubber = "dubber.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["dubber*"]

@@ -26,7 +26,24 @@ services:
       - downloads:/downloads
       - whisper-cache:/root/.cache/whisper
 
+  dubber:
+    build: ./dubber
+    image: youtube-shorts-dubber:latest
+    container_name: youtube-shorts-dubber
+    restart: unless-stopped
+    depends_on:
+      - downloader
+    environment:
+      - TZ=Asia/Kolkata
+      - WHISPER_MODEL=${DUB_WHISPER_MODEL:-base}
+      - DUB_VOICE=${DUB_VOICE:-hi-IN-MadhurNeural}
+    volumes:
+      - downloads:/downloads
+      - dubbed:/dubbed
+      - whisper-cache:/root/.cache/whisper
+
 volumes:
   reports:
   downloads:
   whisper-cache:
+  dubbed:
