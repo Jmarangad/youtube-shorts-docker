@@ -408,8 +408,8 @@ def _make_music_bed(total: int, chord_dur: float = 4.0) -> "np.ndarray":
         tt = np.arange(i1 - i0) / sr
         attack = 1.2
         release = min(2.0, chord_dur - 0.4)
-        env = np.minimum(tt / attack, (tt[-1] - tt) / release + 0.001)
-        env = np.clip(env, 0.0, 1.0) ** 1.6
+        env = np.minimum(tt / attack + 0.35, (tt[-1] - tt) / release + 0.35)
+        env = np.clip(env, 0.0, 1.0) ** 1.4
         tone = np.zeros(tt.shape[0])
         for midi in chords[c % len(chords)]:
             freq = 440.0 * 2 ** ((midi - 69) / 12.0)
@@ -498,9 +498,18 @@ def _build_audio(video: Path, segments: list[Segment], workdir: Path,
     if segments:
         bed = _make_music_bed(total)
         env = _scene_envelope(orig)
-        free = _smooth_mask((~speech_mask & ~scene_mask).astype(np.float32))
-        bed_gain = 0.35 * (0.40 + 0.60 * env) * (0.10 + 0.90 * free)
+        free = _smooth_mask((~speech_mask & ~scene_mask).astype(np.float32),
+                            tau=0.15)
+        bed_gain = 0.85 * (0.65 + 0.35 * env) * (0.25 + 0.75 * free)
         mix += bed * bed_gain[:, None]
+        logger.info(
+            "%s: bed_rms=%.4f bed_gain=[%.2f,%.2f] env=[%.2f,%.2f] "
+            "free=[%.2f,%.2f] speech_cover=%.0f%% scene_cover=%.0f%%",
+            video.stem, float(np.sqrt(np.mean((bed * bed_gain[:, None]) ** 2))),
+            float(bed_gain.min()), float(bed_gain.max()),
+            float(env.min()), float(env.max()),
+            float(free.min()), float(free.max()),
+            100 * float(speech_mask.mean()), 100 * float(scene_mask.mean()))
 
     peak = float(np.max(np.abs(mix))) or 1.0
     if peak > 0.97:
