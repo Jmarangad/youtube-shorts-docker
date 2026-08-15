@@ -13,11 +13,21 @@ Re-dubs downloaded Shorts into **Hindi** with speaker-aware voices.
    (songs/background music) are **kept in the original audio**, so music is
    preserved instead of being dubbed over.
 4. **Tone matching** — the Hindi TTS rate and pitch are tuned to the
-   original speaker's speech rate and fundamental frequency.
-5. **Dedupe** — overlapping or near-duplicate dialog segments are dropped.
-6. **Mux** — Hindi TTS (speech) and original audio (music) are placed at
-   their original timestamps and replace the video's audio track; the video
-   stream is copied unchanged.
+   original speaker's speech rate and fundamental frequency (gently clamped
+   so voices stay natural).
+5. **Natural voice** — each TTS clip is post-processed through
+   high-pass/low-pass EQ, gentle compression, a subtle reverb, and a limiter,
+   so the dubbed speech sounds like a warm studio voice instead of raw TTS.
+6. **Dedupe** — overlapping or near-duplicate dialog segments are dropped.
+7. **Timeline mix** — speech, kept-original music, and a soft ambient music
+   bed are mixed into a single numpy timeline:
+   - **music bed**: silent regions (no speech, no music) get a synthesized
+     mellow pad whose gain follows the scene's loudness envelope, so music
+     appears only where it belongs and "blends with the scene";
+   - **crossfades**: every clip is faded in/out (~30–40 ms) and the bed mask
+     is smoothed, so transitions between speech, music, and silence are
+     seamless instead of abrupt.
+8. **Mux** — the mixed track replaces the video's audio; video is unchanged.
 
 ## Usage
 

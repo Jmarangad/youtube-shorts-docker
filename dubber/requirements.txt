@@ -1,0 +1,5 @@
+numpy>=1.24
+openai-whisper>=20231117
+edge-tts>=6.1.0
+deep-translator>=1.11.0
+certifi>=2024.0.0

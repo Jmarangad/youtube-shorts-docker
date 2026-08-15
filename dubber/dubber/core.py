@@ -30,6 +30,7 @@ logger = logging.getLogger("dubber.core")
 
 _VIDEO_EXTS = {".mp4", ".webm", ".mkv"}
 _SAMPLE_RATE = 16000
+_MIX_RATE = 48000
 
 VOICES = {
     "male": {"name": "hi-IN-MadhurNeural", "natural_f0": 120.0},
@@ -280,82 +281,234 @@ def _gender_from_f0(f0: Optional[float]) -> str:
 
 
 def _tone_params(gender: str, seg: Segment, analysis: dict) -> tuple[str, str]:
-    """edge-tts rate/pitch so the Hindi voice matches the original tone."""
+    """edge-tts rate/pitch so the Hindi voice matches the original tone.
+
+    Clamped to gentle ranges so the dubbed speech stays natural instead of
+    sounding chipmunk-fast or monotone-booming.
+    """
     import numpy as np
     dur = max(seg.end - seg.start, 0.3)
     cps = len(seg.text) / dur
     rate_pct = int(round((cps / 14.0 - 1.0) * 100.0))
-    rate_pct = max(-40, min(40, rate_pct))
+    rate_pct = max(-28, min(28, rate_pct))
     f0 = analysis.get("f0")
     natural = VOICES[gender]["natural_f0"]
     pitch_hz = int(round((f0 - natural) if f0 else 0.0))
-    pitch_hz = max(-120, min(120, pitch_hz))
+    pitch_hz = max(-60, min(60, pitch_hz))
     if gender == "kids":
-        rate_pct += 20
-        pitch_hz += 30
+        rate_pct += 10
+        pitch_hz += 20
     return f"{rate_pct:+d}%", f"{pitch_hz:+d}Hz"
 
 
-def _extract_original(video: Path, start: float, end: float, out_wav: Path) -> None:
-    dur = max(end - start, 0.1)
-    _ffmpeg(["-i", str(video), "-ss", f"{start:.3f}", "-t", f"{dur:.3f}",
-             "-vn", "-ac", "2", "-ar", "48000", str(out_wav)])
+def _read_wav(path: Path) -> tuple["np.ndarray", int]:
+    """Read a PCM wav into float32 samples in [-1, 1]."""
+    import numpy as np
+    import wave
+    with wave.open(str(path), "rb") as w:
+        sr = w.getframerate()
+        nch = w.getnchannels()
+        data = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    data = data.reshape(-1, nch) if nch > 1 else data[:, None]
+    return data.astype(np.float32) / 32768.0, sr
+
+
+def _write_wav(path: Path, arr: "np.ndarray", sr: int = _MIX_RATE) -> None:
+    """Write float32 samples back out as a stereo PCM wav."""
+    import numpy as np
+    import wave
+    pcm = np.clip(arr, -1.0, 1.0)
+    pcm = (pcm * 32767.0).astype(np.int16)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(pcm.tobytes())
+
+
+def _place_clip(mix: "np.ndarray", clip: "np.ndarray", s0: int,
+                fade_in: float = 0.03, fade_out: float = 0.04) -> None:
+    """Add a clip into the timeline mix with smooth in/out fades."""
+    import numpy as np
+    if clip.shape[0] == 0 or s0 >= mix.shape[0]:
+        return
+    T = min(clip.shape[0], mix.shape[0] - s0)
+    w = np.ones(T)
+    fi = min(int(fade_in * _MIX_RATE), T // 2)
+    fo = min(int(fade_out * _MIX_RATE), T // 2)
+    if fi > 0:
+        w[:fi] = np.linspace(0.0, 1.0, fi, endpoint=False)
+    if fo > 0:
+        w[-fo:] = np.linspace(1.0, 0.0, fo, endpoint=False)
+    mix[s0:s0 + T] += clip[:T] * w[:, None]
+
+
+def _postprocess_tts(wav_in: Path, wav_out: Path) -> None:
+    """EQ + gentle compression + subtle reverb + limiter for a natural voice."""
+    af = (
+        "highpass=f=75,lowpass=f=13000,"
+        "acompressor=threshold=-22dB:ratio=2.5:attack=12:release=180:makeup=4dB,"
+        "aecho=0.8:0.85:55|85:0.12|0.06,"
+        "alimiter=limit=0.95"
+    )
+    _ffmpeg(["-i", str(wav_in), "-af", af, "-c:a", "pcm_s16le", str(wav_out)])
+
+
+def _smooth_mask(mask: "np.ndarray", window: float = 0.05,
+                 tau: float = 0.25) -> "np.ndarray":
+    """Window-averaged + convolved smoothing of a per-sample boolean mask."""
+    import numpy as np
+    n = mask.shape[0]
+    w = max(int(window * _MIX_RATE), 1)
+    nw = (n + w - 1) // w
+    padded = np.pad(mask, (0, nw * w - n))
+    env = padded.reshape(nw, w).mean(axis=1)
+    kern_len = max(int(tau / window), 1)
+    kern = np.ones(kern_len) / kern_len
+    env_s = np.convolve(env, kern, mode="same")
+    return np.repeat(env_s, w)[:n].astype(np.float32)
+
+
+def _scene_envelope(orig: "np.ndarray", window: float = 0.5) -> "np.ndarray":
+    """Normalized loudness envelope (0..1) of the original audio."""
+    import numpy as np
+    n = orig.shape[0]
+    w = int(window * _MIX_RATE)
+    mono = orig.mean(axis=1)
+    nw = (n + w - 1) // w
+    padded = np.pad(mono ** 2, (0, nw * w - n))
+    rms = np.sqrt(padded.reshape(nw, w).mean(axis=1))
+    rms /= (float(np.percentile(rms, 95)) + 1e-9)
+    rms = np.clip(rms, 0.0, 1.2)
+    kern = np.ones(3) / 3
+    rms_s = np.convolve(rms, kern, mode="same")
+    return np.repeat(rms_s, w)[:n].astype(np.float32)
+
+
+def _make_music_bed(total: int, chord_dur: float = 4.0) -> "np.ndarray":
+    """Soft mellow ambient pad that blends with any scene (numpy synth)."""
+    import numpy as np
+    sr = _MIX_RATE
+    chords = [
+        [57, 60, 64, 67],
+        [53, 57, 60, 64],
+        [48, 52, 55, 59],
+        [55, 59, 62, 67],
+    ]
+    bed = np.zeros(total, dtype=np.float64)
+    n_chords = int(np.ceil(total / sr / chord_dur)) + 1
+    phase = 0.0
+    for c in range(n_chords):
+        t0 = c * chord_dur
+        t1 = min((c + 1) * chord_dur, total / sr)
+        i0 = int(t0 * sr)
+        i1 = min(int(t1 * sr), total)
+        if i1 <= i0:
+            break
+        tt = np.arange(i1 - i0) / sr
+        attack = 1.2
+        release = min(2.0, chord_dur - 0.4)
+        env = np.minimum(tt / attack, (tt[-1] - tt) / release + 0.001)
+        env = np.clip(env, 0.0, 1.0) ** 1.6
+        tone = np.zeros(tt.shape[0])
+        for midi in chords[c % len(chords)]:
+            freq = 440.0 * 2 ** ((midi - 69) / 12.0)
+            tone += np.sin(2 * np.pi * freq * tt + phase)
+            tone += 0.45 * np.sin(2 * np.pi * freq * 2.0 * tt + phase)
+            tone += 0.30 * np.sin(2 * np.pi * freq * 1.004 * tt + 0.4)
+        bed[i0:i1] += env * tone
+        phase += 0.35
+    peak = float(np.max(np.abs(bed))) or 1.0
+    bed = bed / peak * 0.9
+    delay = int(0.008 * sr)
+    right = np.roll(bed, delay)
+    right[:delay] = 0.0
+    return np.stack([bed, right * 0.85], axis=1).astype(np.float32)
 
 
 def _build_audio(video: Path, segments: list[Segment], workdir: Path,
                  voice_overrides: dict) -> Path:
-    """Mix TTS (speech) + original audio (music) at original timestamps."""
+    """Build the dubbed soundtrack in a single numpy timeline mix.
+
+    Speech is dubbed with a natural, processed Hindi voice; songs keep the
+    original audio; silent gaps get a soft ambient music bed shaped by the
+    scene's loudness. Crossfades on every clip smooth all transitions.
+    """
+    import numpy as np
     import whisper
+    sr = _MIX_RATE
+    orig_wav = workdir / "orig.wav"
+    _ffmpeg(["-i", str(video), "-vn", "-ac", "2", "-ar", str(sr),
+             str(orig_wav)])
+    orig, _ = _read_wav(orig_wav)
+    total = orig.shape[0]
+    if total == 0:
+        return workdir / "silent.wav"
+
     audio = whisper.load_audio(str(video))
-    inputs = [str(video)]
-    delays: list[str] = []
-    filter_parts: list[str] = []
+    mix = np.zeros((total, 2), dtype=np.float32)
+    speech_mask = np.zeros(total, dtype=bool)
+    scene_mask = np.zeros(total, dtype=bool)
+
     voices = {k: dict(v) for k, v in VOICES.items()}
     for key, override in (voice_overrides or {}).items():
         if override and key in voices:
             voices[key]["name"] = override
+
     for i, seg in enumerate(segments):
+        s0 = int(seg.start * sr)
+        s1 = min(int(seg.end * sr), total)
+        if s1 <= s0:
+            continue
         analysis = _analyze_segment(audio, _SAMPLE_RATE, seg.start, seg.end)
         if analysis["is_music"]:
-            wav = workdir / f"seg{i:04d}.music.wav"
-            _extract_original(video, seg.start, seg.end, wav)
+            clip = np.ascontiguousarray(orig[s0:s1], dtype=np.float32)
+            _place_clip(mix, clip, s0)
+            scene_mask[s0:s1] = True
+            continue
+        gender = _gender_from_f0(analysis["f0"]) \
+            if analysis["voiced"] > 0.15 else "kids"
+        rate, pitch = _tone_params(gender, seg, analysis)
+        hindi_text = _translate(seg.text)
+        clip = None
+        if hindi_text and any(ch.isalnum() for ch in hindi_text):
+            wav = workdir / f"seg{i:04d}.{gender}.wav"
+            try:
+                _synthesize(hindi_text, voices[gender]["name"], wav,
+                            rate=rate, pitch=pitch)
+            except Exception as exc:
+                logger.warning("%s seg%d tuned TTS failed (%s); "
+                               "retrying with default params",
+                               video.stem, i, exc)
+                _synthesize(hindi_text, voices[gender]["name"], wav)
+            proc = workdir / f"seg{i:04d}.proc.wav"
+            _postprocess_tts(wav, proc)
+            clip, _ = _read_wav(proc)
+        if clip is not None and clip.shape[0] > 0:
+            _place_clip(mix, clip, s0)
+            c1 = min(total, s0 + clip.shape[0])
+            speech_mask[s0:c1] = True
         else:
-            gender = _gender_from_f0(analysis["f0"]) \
-                if analysis["voiced"] > 0.15 else "kids"
-            rate, pitch = _tone_params(gender, seg, analysis)
-            hindi_text = _translate(seg.text)
-            if hindi_text and any(ch.isalnum() for ch in hindi_text):
-                wav = workdir / f"seg{i:04d}.{gender}.wav"
-                try:
-                    _synthesize(hindi_text, voices[gender]["name"], wav,
-                                rate=rate, pitch=pitch)
-                except Exception as exc:
-                    logger.warning("%s seg%d tuned TTS failed (%s); "
-                                   "retrying with default params",
-                                   video.stem, i, exc)
-                    _synthesize(hindi_text, voices[gender]["name"], wav)
-            else:
-                logger.info("%s seg%d has no synthesizable text; "
-                            "keeping original audio", video.stem, i)
-                wav = workdir / f"seg{i:04d}.music.wav"
-                _extract_original(video, seg.start, seg.end, wav)
-        inputs.append(str(wav))
-        delay_ms = int(seg.start * 1000)
-        delays.append(f"[{i + 1}:a]adelay={delay_ms}|{delay_ms}[d{i}]")
-        filter_parts.append(f"[d{i}]")
-    if not delays:
-        return workdir / "silent.wav"
-    n = len(delays)
-    filter_complex = ";".join(delays) + ";"
-    filter_complex += "".join(filter_parts)
-    filter_complex += f"amix=inputs={n}:duration=longest:normalize=0[a]"
+            logger.info("%s seg%d has no synthesizable text; "
+                        "keeping original audio", video.stem, i)
+            clip = np.ascontiguousarray(orig[s0:s1], dtype=np.float32)
+            _place_clip(mix, clip, s0)
+            scene_mask[s0:s1] = True
+
+    if segments:
+        bed = _make_music_bed(total)
+        env = _scene_envelope(orig)
+        free = _smooth_mask((~speech_mask & ~scene_mask).astype(np.float32))
+        bed_gain = 0.35 * (0.40 + 0.60 * env) * (0.10 + 0.90 * free)
+        mix += bed * bed_gain[:, None]
+
+    peak = float(np.max(np.abs(mix))) or 1.0
+    if peak > 0.97:
+        mix *= 0.97 / peak
+    out_wav = workdir / "hindi.wav"
+    _write_wav(out_wav, mix, sr)
     out = workdir / "hindi.m4a"
-    cmd = []
-    for inp in inputs:
-        cmd += ["-i", inp]
-    cmd += ["-filter_complex", filter_complex, "-map", "[a]",
-            "-c:a", "aac", "-b:a", "160k", str(out)]
-    _ffmpeg(cmd)
+    _ffmpeg(["-i", str(out_wav), "-c:a", "aac", "-b:a", "160k", str(out)])
     return out
 
 

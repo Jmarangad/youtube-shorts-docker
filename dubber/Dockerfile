@@ -9,16 +9,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends cron tzdata \
 
 WORKDIR /app
 
-COPY dubber/ dubber/
 COPY entrypoint.sh /entrypoint.sh
+COPY requirements.txt /tmp/requirements.txt
 
-RUN pip install --no-cache-dir \
-        openai-whisper \
-        edge-tts \
-        deep-translator \
-        static-ffmpeg \
-        numpy \
-        certifi \
-    && chmod +x /entrypoint.sh
+RUN apt-get update && apt-get install -y --no-install-recommends cron tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && chmod +x /entrypoint.sh \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && pip install --no-cache-dir static-ffmpeg
+
+COPY dubber/ dubber/
 
 CMD ["/entrypoint.sh"]
