@@ -58,6 +58,21 @@ services:
       - downloads:/downloads:ro
       - uploader-config:/config
 
+  dashboard:
+    build: ./dashboard
+    image: youtube-shorts-dashboard:latest
+    container_name: youtube-shorts-dashboard
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Kolkata
+    ports:
+      - "8080:80"
+    volumes:
+      - reports:/reports:ro
+      - downloads:/downloads:ro
+      - dubbed:/dubbed:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
 volumes:
   reports:
   downloads:

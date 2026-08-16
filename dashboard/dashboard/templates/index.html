@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shorts Pipeline Dashboard</title>
+<style>
+  :root { --bg:#0f1420; --card:#171e2e; --line:#26314a; --txt:#e6ecf5; --muted:#8fa0bd;
+          --ok:#2ecc71; --warn:#f1c40f; --bad:#e74c3c; --unk:#8fa0bd; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg); color:var(--txt); }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center;
+           justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  header h1 { margin:0; font-size:20px; }
+  #updated { color:var(--muted); font-size:13px; }
+  main { padding:24px; max-width:1200px; margin:0 auto; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .card-head { padding:14px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center;
+               gap:10px; }
+  .card-head h2 { margin:0; font-size:16px; }
+  .badge { font-size:11px; padding:3px 9px; border-radius:20px; font-weight:600; text-transform:uppercase; }
+  .b-ok { background:rgba(46,204,113,.15); color:var(--ok); }
+  .b-stale { background:rgba(241,196,15,.15); color:var(--warn); }
+  .b-bad { background:rgba(231,76,60,.15); color:var(--bad); }
+  .b-unknown { background:rgba(143,160,189,.15); color:var(--unk); }
+  .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .card-body { padding:14px 16px; }
+  .kv { display:flex; justify-content:space-between; padding:4px 0; font-size:13px; }
+  .kv span:first-child { color:var(--muted); }
+  .summary { margin-top:6px; font-size:13px; line-height:1.5; }
+  .err { color:var(--bad); }
+  details { margin-top:10px; }
+  summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  pre { background:#0b1019; border:1px solid var(--line); border-radius:8px; padding:10px;
+        font-size:11px; max-height:220px; overflow:auto; white-space:pre-wrap; }
+  .uplist { font-size:12px; color:var(--muted); max-height:120px; overflow:auto; }
+  .toplist { font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>&#127909; YouTube Shorts Pipeline Dashboard</h1>
+  <div id="updated">loading&hellip;</div>
+</header>
+<main>
+  <div class="grid" id="grid">loading&hellip;</div>
+</main>
+
+<script>
+const cols = { ok:'#2ecc71', stale:'#f1c40f', bad:'#e74c3c', unknown:'#8fa0bd' };
+
+function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function fmt(iso){
+  if(!iso) return 'never';
+  const d = new Date(iso); if(isNaN(d)) return esc(iso);
+  return d.toLocaleString();
+}
+function rel(iso){
+  if(!iso) return 'never';
+  const d = new Date(iso); const s = Math.floor((Date.now()-d)/1000);
+  if(s<60) return s+'s ago'; if(s<3600) return Math.floor(s/60)+'m ago';
+  if(s<86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
+}
+
+function kv(k,v){ return `<div class="kv"><span>${esc(k)}</span><span>${v}</span></div>`; }
+
+function logBlock(log){
+  const body = (log||[]).map(l=>esc(l)).join('');
+  return `<details><summary>recent log (${(log||[]).length})</summary><pre>${body||'(empty)'}</pre></details>`;
+}
+
+function render(agents){
+  const grid = document.getElementById('grid');
+  grid.innerHTML = agents.map(a=>{
+    const s = a.summary||{};
+    const cs = a.container_status||{};
+    const st = a.status||'unknown';
+    const stLabel = st==='ok'?'ok':st==='stale'?'stale':st==='bad'?'bad':'unknown';
+    const runDot = cs.running ? `<span class="dot" style="background:var(--ok)"></span>` :
+                   `<span class="dot" style="background:${cs.running===false?'var(--bad)':'var(--unk)'}"></span>`;
+
+    let body;
+    if(a.error){ body = `<div class="err">error: ${esc(a.error)}</div>`; }
+    else {
+      const rows = [ kv('last execution', fmt(s.latest_at)+' <span style="color:var(--muted)">('+rel(s.latest_at)+')</span>'),
+                     kv('container', cs.running?'running':'<span style="color:var(--bad)">'+esc(cs.status||'unknown')+'</span>') ];
+      if(s.pool_size!==undefined) rows.push(kv('pool size', s.pool_size));
+      if(s.top_count!==undefined) rows.push(kv('trending shorts', s.top_count));
+      if(s.distinct_videos!==undefined) rows.push(kv('distinct videos', s.distinct_videos));
+      if(s.downloaded!==undefined) rows.push(kv('downloaded', s.downloaded));
+      if(s.videos_found!==undefined) rows.push(kv('videos found', s.videos_found));
+      if(s.dubbed!==undefined) rows.push(kv('dubbed', s.dubbed));
+      if(s.skipped!==undefined) rows.push(kv('skipped / no speech', s.skipped));
+      if(s.segments!==undefined) rows.push(kv('speech segments', s.segments));
+      if(s.uploaded_count!==undefined) rows.push(kv('uploaded', s.uploaded_count));
+      if(s.failed!==undefined && s.failed>0) rows.push(kv('failed', '<span class="err">'+s.failed+'</span>'));
+
+      let list = '';
+      if(s.top_titles) list = `<div class="toplist">`+s.top_titles.slice(0,5).map(t=>'&bull; '+esc(t)).join('<br>')+`</div>`;
+      if(s.uploaded) list = `<div class="uplist">`+s.uploaded.map(n=>'&bull; '+esc(n)).join('<br>')+`</div>`;
+
+      const errs = (s.errors||[]).filter(Boolean);
+      const errHtml = errs.length? `<div class="err" style="margin-top:6px">`+errs.slice(0,3).map(e=>esc(e)).join('<br>')+`</div>`:'';
+      body = rows.join('') + (list? `<div class="summary">${list}</div>`:'') + errHtml + logBlock(a.recent_log);
+    }
+    return `<div class="card">
+      <div class="card-head">${runDot}<h2>${esc(a.name)}</h2>
+        <span class="badge b-${stLabel}">${stLabel}</span></div>
+      <div class="card-body">${body}</div></div>`;
+  }).join('');
+}
+
+async function refresh(){
+  try{
+    const r = await fetch('/api/agents');
+    const d = await r.json();
+    render(d.agents||[]);
+    document.getElementById('updated').textContent = 'updated '+new Date(d.generated_at).toLocaleString();
+  }catch(e){ document.getElementById('updated').textContent = 'refresh failed'; }
+}
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>
