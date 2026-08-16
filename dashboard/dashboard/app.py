@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template
@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent
 REPORTS = Path(os.environ.get("REPORTS_DIR", "/reports"))
 DOWNLOADS = Path(os.environ.get("DOWNLOADS_DIR", "/downloads"))
 DUBBED = Path(os.environ.get("DUBBED_DIR", "/dubbed"))
+MOVIE_SHORTS_OUT = Path(os.environ.get("MOVIE_SHORTS_OUT", "/movie-shorts/output"))
 
 _RE_DUR = re.compile(r"(\d+):(\d+):(\d+)")
 
@@ -108,16 +109,168 @@ def _uploader_summary() -> dict:
     }
 
 
+def _movie_shorts_summary() -> dict:
+    """Status of the movie-shorts-agent (reads its bind-mounted output dir)."""
+    plan = _read_json(MOVIE_SHORTS_OUT / "story_plan.json")
+    used = _read_json(MOVIE_SHORTS_OUT / "used_movies.json")
+    used_count = len(used.get("video_ids", [])) if isinstance(used, dict) else 0
+    backups_dir = MOVIE_SHORTS_OUT / "backups"
+    backups = sorted(backups_dir.glob("*")) if backups_dir.exists() else []
+    latest_at = None
+    if backups:
+        latest_at = _iso(backups[-1].stat().st_mtime)
+    elif plan:
+        try:
+            latest_at = _iso((MOVIE_SHORTS_OUT / "story_plan.json").stat().st_mtime)
+        except OSError:
+            pass
+    final = MOVIE_SHORTS_OUT / "final_short.mp4"
+    return {
+        "latest_at": latest_at,
+        "source_video_id": (plan or {}).get("source_video_id"),
+        "scenes": len((plan or {}).get("timestamps", [])),
+        "used_count": used_count,
+        "backups": len(backups),
+        "final_size": final.stat().st_size if final.exists() else None,
+    }
+
+
+# --- schedule / next-execution helpers ---------------------------------------
+def _docker_client():
+    try:
+        import docker
+
+        return docker.from_env()
+    except Exception:
+        return None
+
+
+def _cron_ints(field: str, allowed: range) -> set[int]:
+    """Expand a single cron field (``*``, ``5``, ``1,15``, ``*/15``, ``0-30``)."""
+    field = field.strip()
+    if field == "*":
+        return set(allowed)
+    values: set[int] = set()
+    for part in field.split(","):
+        if "/" in part:
+            base, step = part.split("/", 1)
+            step = max(int(step), 1)
+            if base in ("", "*"):
+                values.update(allowed[::step])
+            else:
+                values.update(sorted(_cron_ints(base, allowed))[::step])
+        elif "-" in part:
+            lo, hi = (int(x) for x in part.split("-", 1))
+            values.update(range(lo, hi + 1))
+        else:
+            values.add(int(part))
+    return {v for v in values if v in allowed}
+
+
+def _next_cron(fields: list[str], tz_name: str) -> str | None:
+    """Next occurrence of a 5-field cron expression in the given timezone."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+    minutes = _cron_ints(fields[0], range(0, 60))
+    hours = _cron_ints(fields[1], range(0, 24))
+    now = datetime.now(tz)
+    for days_ahead in range(0, 367):
+        day = now + timedelta(days=days_ahead)
+        for hour in sorted(hours):
+            for minute in sorted(minutes):
+                cand = day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if cand > now:
+                    return _iso(cand.timestamp())
+    return None
+
+
+def _read_cron_fields(client, container_name: str, cron_file: str, default: list[str]) -> list[str]:
+    """Read the 5 cron fields from the container's cron file, if reachable."""
+    if client is None:
+        return default
+    try:
+        container = client.containers.get(container_name)
+        res = container.exec_run(["cat", cron_file])
+        if res.exit_code == 0:
+            for line in res.output.decode(errors="replace").splitlines():
+                parts = line.split()
+                if parts and not parts[0].startswith("#") and len(parts) >= 5:
+                    return parts[:5]
+    except Exception:
+        pass
+    return default
+
+
+def _container_log(client, container_name: str, lines: int = 30) -> list[str]:
+    if client is None:
+        return []
+    try:
+        logs = client.containers.get(container_name).logs(tail=lines).decode(errors="replace")
+        return logs.splitlines()
+    except Exception:
+        return []
+
+
+def _next_from_log(client, container_name: str, interval_hours: float, started_at: str | None) -> str | None:
+    """Next run for a self-scheduled agent, from its ``next run in X h`` logs."""
+    if client is None:
+        return None
+    try:
+        logs = client.containers.get(container_name).logs(tail=4000).decode(errors="replace")
+    except Exception:
+        logs = ""
+    last = None
+    for line in logs.splitlines():
+        match = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*next run in ([0-9.]+) h", line)
+        if match:
+            last = match
+    if last:
+        try:
+            dt = datetime.strptime(last.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            nxt = dt + timedelta(hours=float(last.group(2)))
+        except Exception:
+            nxt = None
+        if nxt:
+            # A run may be in progress past the logged start; roll forward.
+            while nxt <= _utcnow():
+                nxt += timedelta(hours=interval_hours)
+            return _iso(nxt.timestamp())
+    # Fallback: container start + interval (close enough before a run completes).
+    if started_at:
+        try:
+            dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            nxt = dt + timedelta(hours=interval_hours)
+            while nxt <= _utcnow():
+                nxt += timedelta(hours=interval_hours)
+            return _iso(nxt.timestamp())
+        except Exception:
+            return None
+    return None
+
+
 AGENTS = [
     {"name": "trending-agent", "container": "youtube-trending-agent",
-     "log_file": "/var/log/agent.log", "summary": _trending_summary},
+     "log_file": "/var/log/agent.log", "summary": _trending_summary,
+     "cron_file": "/etc/cron.d/agent", "cron_default": ["0", "*", "*", "*", "*"]},
     {"name": "downloader", "container": "youtube-shorts-downloader",
-     "log_file": "/var/log/downloader.log", "summary": _downloader_summary},
+     "log_file": "/var/log/downloader.log", "summary": _downloader_summary,
+     "cron_file": "/etc/cron.d/downloader", "cron_default": ["0", "*", "*", "*", "*"]},
     {"name": "dubber", "container": "youtube-shorts-dubber",
-     "log_file": "/var/log/dubber.log", "summary": _dubber_summary},
+     "log_file": "/var/log/dubber.log", "summary": _dubber_summary,
+     "cron_file": "/etc/cron.d/dubber", "cron_default": ["15", "*", "*", "*", "*"]},
     {"name": "uploader", "container": "youtube-shorts-uploader",
-     "log_file": "/var/log/uploader.log", "summary": _uploader_summary},
+     "log_file": "/var/log/uploader.log", "summary": _uploader_summary,
+     "cron_file": "/etc/cron.d/uploader", "cron_default": ["50", "23", "*", "*", "*"]},
+    {"name": "movie-shorts-agent", "container": "movie-shorts-agent",
+     "log_file": "", "summary": _movie_shorts_summary,
+     "interval_hours": 3.0},
 ]
+
+_AGENT_TZ = "Asia/Kolkata"
 
 
 def _container_status(container_name: str) -> dict | None:
@@ -146,9 +299,10 @@ def _read_log(path: str, lines: int = 30) -> list[str]:
 
 
 def _agent_card(agent: dict) -> dict:
+    client = _docker_client()
     container = _container_status(agent["container"])
     summary = agent["summary"]()
-    log = _read_log(agent["log_file"])
+    log = _read_log(agent["log_file"]) or _container_log(client, agent["container"])
 
     last_ts = summary.get("latest_at")
     status = "unknown"
@@ -160,11 +314,20 @@ def _agent_card(agent: dict) -> dict:
         except Exception:
             status = "unknown"
 
+    next_execution = None
+    if "cron_file" in agent:
+        fields = _read_cron_fields(client, agent["container"], agent["cron_file"], agent["cron_default"])
+        next_execution = _next_cron(fields, _AGENT_TZ)
+    elif "interval_hours" in agent:
+        started = (container or {}).get("started_at")
+        next_execution = _next_from_log(client, agent["container"], agent["interval_hours"], started)
+
     return {
         "name": agent["name"],
         "container": agent["container"],
         "container_status": container,
         "last_execution": last_ts,
+        "next_execution": next_execution,
         "status": status,
         "summary": summary,
         "recent_log": log,

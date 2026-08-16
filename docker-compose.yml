@@ -71,6 +71,7 @@ services:
       - reports:/reports:ro
       - downloads:/downloads:ro
       - dubbed:/dubbed:ro
+      - ../movie-shorts-agent/output:/movie-shorts/output:ro
       - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:

@@ -60,9 +60,21 @@ function fmt(iso){
 }
 function rel(iso){
   if(!iso) return 'never';
-  const d = new Date(iso); const s = Math.floor((Date.now()-d)/1000);
+  const d = new Date(iso); if(isNaN(d)) return '';
+  let s = Math.floor((d - Date.now())/1000);
+  if(s>0){
+    if(s<60) return 'in '+s+'s'; if(s<3600) return 'in '+Math.floor(s/60)+'m';
+    if(s<86400) return 'in '+Math.floor(s/3600)+'h'; return 'in '+Math.floor(s/86400)+'d';
+  }
+  s = -s;
   if(s<60) return s+'s ago'; if(s<3600) return Math.floor(s/60)+'m ago';
   if(s<86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
+}
+function fmtSize(bytes){
+  if(!bytes) return null;
+  if(bytes>=1073741824) return (bytes/1073741824).toFixed(1)+' GB';
+  if(bytes>=1048576) return (bytes/1048576).toFixed(1)+' MB';
+  return Math.round(bytes/1024)+' KB';
 }
 
 function kv(k,v){ return `<div class="kv"><span>${esc(k)}</span><span>${v}</span></div>`; }
@@ -86,7 +98,14 @@ function render(agents){
     if(a.error){ body = `<div class="err">error: ${esc(a.error)}</div>`; }
     else {
       const rows = [ kv('last execution', fmt(s.latest_at)+' <span style="color:var(--muted)">('+rel(s.latest_at)+')</span>'),
+                     kv('next execution', a.next_execution? fmt(a.next_execution)+' <span style="color:var(--muted)">('+rel(a.next_execution)+')</span>':'<span style="color:var(--muted)">unknown</span>'),
                      kv('container', cs.running?'running':'<span style="color:var(--bad)">'+esc(cs.status||'unknown')+'</span>') ];
+      if(s.source_video_id) rows.push(kv('current movie', '<span title="'+esc(s.source_video_id)+'">'+esc(String(s.source_video_id).slice(0,8))+'</span>'));
+      if(s.scenes!==undefined) rows.push(kv('scenes', s.scenes));
+      if(s.used_count!==undefined) rows.push(kv('movies used', s.used_count));
+      if(s.backups!==undefined) rows.push(kv('backups kept', s.backups));
+      const sz = fmtSize(s.final_size);
+      if(sz) rows.push(kv('last short size', sz));
       if(s.pool_size!==undefined) rows.push(kv('pool size', s.pool_size));
       if(s.top_count!==undefined) rows.push(kv('trending shorts', s.top_count));
       if(s.distinct_videos!==undefined) rows.push(kv('distinct videos', s.distinct_videos));
