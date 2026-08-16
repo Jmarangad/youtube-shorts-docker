@@ -5,143 +5,326 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shorts Pipeline Dashboard</title>
 <style>
-  :root { --bg:#0f1420; --card:#171e2e; --line:#26314a; --txt:#e6ecf5; --muted:#8fa0bd;
-          --ok:#2ecc71; --warn:#f1c40f; --bad:#e74c3c; --unk:#8fa0bd; }
+  :root {
+    --bg:#070b14; --bg2:#0d1424; --card:#111a2e; --card2:#16223c;
+    --line:#22304d; --line2:#2c3d61;
+    --txt:#e8eefc; --muted:#8ba0c2; --faint:#5c7196;
+    --ok:#2fd68b; --warn:#f4b942; --bad:#f1556b; --unk:#7e93b8; --info:#4aa8ff;
+    --shadow:0 10px 30px -12px rgba(0,0,0,.6);
+    --r:14px;
+  }
   * { box-sizing:border-box; }
+  html { color-scheme:dark; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-         background:var(--bg); color:var(--txt); }
-  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center;
-           justify-content:space-between; flex-wrap:wrap; gap:8px; }
-  header h1 { margin:0; font-size:20px; }
-  #updated { color:var(--muted); font-size:13px; }
-  main { padding:24px; max-width:1200px; margin:0 auto; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-  .card-head { padding:14px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center;
-               gap:10px; }
-  .card-head h2 { margin:0; font-size:16px; }
-  .badge { font-size:11px; padding:3px 9px; border-radius:20px; font-weight:600; text-transform:uppercase; }
-  .b-ok { background:rgba(46,204,113,.15); color:var(--ok); }
-  .b-stale { background:rgba(241,196,15,.15); color:var(--warn); }
-  .b-bad { background:rgba(231,76,60,.15); color:var(--bad); }
-  .b-unknown { background:rgba(143,160,189,.15); color:var(--unk); }
-  .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
-  .card-body { padding:14px 16px; }
-  .kv { display:flex; justify-content:space-between; padding:4px 0; font-size:13px; }
-  .kv span:first-child { color:var(--muted); }
-  .summary { margin-top:6px; font-size:13px; line-height:1.5; }
-  .err { color:var(--bad); }
-  details { margin-top:10px; }
-  summary { cursor:pointer; color:var(--muted); font-size:13px; }
-  pre { background:#0b1019; border:1px solid var(--line); border-radius:8px; padding:10px;
-        font-size:11px; max-height:220px; overflow:auto; white-space:pre-wrap; }
-  .uplist { font-size:12px; color:var(--muted); max-height:120px; overflow:auto; }
-  .toplist { font-size:12px; color:var(--muted); }
+    background:radial-gradient(1200px 600px at 80% -10%, rgba(74,168,255,.12), transparent 60%),
+               radial-gradient(900px 500px at 10% 10%, rgba(47,214,139,.08), transparent 55%),
+               var(--bg); color:var(--txt); min-height:100vh; }
+  header { position:sticky; top:0; z-index:20; backdrop-filter:blur(12px);
+    background:rgba(9,13,24,.72); border-bottom:1px solid var(--line);
+    padding:14px 22px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header .brand { display:flex; align-items:center; gap:12px; }
+  header .logo { width:34px; height:34px; border-radius:10px; display:grid; place-items:center;
+    background:linear-gradient(135deg,#4aa8ff,#2fd68b); box-shadow:0 4px 14px -4px rgba(74,168,255,.5); }
+  header h1 { margin:0; font-size:18px; letter-spacing:.2px; }
+  header h1 small { display:block; color:var(--muted); font-size:11px; font-weight:400; margin-top:1px; }
+  header .right { margin-left:auto; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  #health { display:flex; align-items:center; gap:8px; padding:6px 14px; border-radius:20px;
+    font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; border:1px solid var(--line); }
+  #updated { color:var(--muted); font-size:12px; }
+  #clock { font-variant-numeric:tabular-nums; color:var(--faint); font-size:12px; }
+
+  main { padding:20px 22px 40px; max-width:1280px; margin:0 auto; }
+
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin-bottom:20px; }
+  .stat { background:linear-gradient(180deg,var(--card),var(--bg2)); border:1px solid var(--line);
+    border-radius:var(--r); padding:14px 16px; box-shadow:var(--shadow); position:relative; overflow:hidden; }
+  .stat::after { content:""; position:absolute; inset:0 0 auto 0; height:3px;
+    background:linear-gradient(90deg,var(--accent,var(--info)),transparent); opacity:.85; }
+  .stat .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.6px; }
+  .stat .v { font-size:26px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums;
+    background:linear-gradient(180deg,#fff,var(--accent,var(--info))); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .stat .h { color:var(--faint); font-size:11px; margin-top:2px; }
+
+  .chain { background:linear-gradient(180deg,var(--card),var(--bg2)); border:1px solid var(--line);
+    border-radius:var(--r); padding:16px 18px; box-shadow:var(--shadow); margin-bottom:20px; }
+  .chain h3 { margin:0 0 12px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; }
+  .chain .nodes { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; }
+  .node { flex:1 1 150px; border:1px solid var(--line); border-radius:12px; padding:10px 12px;
+    background:var(--card2); position:relative; min-width:140px; }
+  .node .t { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; }
+  .node .s { color:var(--muted); font-size:11px; margin-top:4px; }
+  .node .nx { color:var(--txt); font-size:12px; margin-top:6px; font-variant-numeric:tabular-nums; }
+  .node .nx .c { color:var(--ok); font-weight:600; }
+  .node.running { border-color:var(--ok); box-shadow:0 0 0 1px rgba(47,214,139,.35), 0 6px 18px -8px rgba(47,214,139,.4); }
+  .arrow { align-self:center; color:var(--faint); font-size:18px; flex:0 0 auto; }
+
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:16px; }
+  .card { background:linear-gradient(180deg,var(--card),var(--bg2)); border:1px solid var(--line);
+    border-radius:var(--r); box-shadow:var(--shadow); overflow:hidden; transition:transform .15s ease, border-color .15s ease; }
+  .card:hover { transform:translateY(-2px); border-color:var(--line2); }
+  .card-head { display:flex; align-items:center; gap:12px; padding:14px 16px;
+    border-bottom:1px solid var(--line); background:rgba(255,255,255,.015); }
+  .card-head .ico { width:34px; height:34px; border-radius:9px; display:grid; place-items:center;
+    background:var(--card2); border:1px solid var(--line); color:var(--accent); flex:0 0 auto; }
+  .card-head .ttl { flex:1; min-width:0; }
+  .card-head h2 { margin:0; font-size:15px; display:flex; align-items:center; gap:8px; }
+  .card-head .sub { color:var(--muted); font-size:11px; margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .badge { font-size:10px; padding:3px 10px; border-radius:20px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; }
+  .b-ok { background:rgba(47,214,139,.14); color:var(--ok); }
+  .b-stale { background:rgba(244,185,66,.14); color:var(--warn); }
+  .b-bad { background:rgba(241,85,107,.16); color:var(--bad); }
+  .b-unknown { background:rgba(126,147,184,.16); color:var(--unk); }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; flex:0 0 auto; }
+  .dot.on { background:var(--ok); box-shadow:0 0 0 0 rgba(47,214,139,.6); animation:pulse 1.8s infinite; }
+  .dot.off { background:var(--bad); }
+  .dot.unk { background:var(--unk); }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(47,214,139,.55)} 70%{box-shadow:0 0 0 8px rgba(47,214,139,0)} 100%{box-shadow:0 0 0 0 rgba(47,214,139,0)} }
+
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(96px,1fr)); gap:8px; padding:12px 16px; }
+  .metric { background:var(--card2); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
+  .metric .k { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
+  .metric .v { font-size:18px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .metric .v.err { color:var(--bad); }
+
+  .times { padding:0 16px 4px; }
+  .trow { display:flex; justify-content:space-between; padding:5px 0; font-size:12px; border-bottom:1px dashed var(--line); }
+  .trow:last-child { border-bottom:none; }
+  .trow span:first-child { color:var(--muted); }
+  .trow .mono { font-variant-numeric:tabular-nums; }
+  .trow .count { color:var(--ok); font-weight:600; }
+
+  .list { padding:0 16px 12px; }
+  .list .lt { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.6px; margin:8px 0 6px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { background:var(--card2); border:1px solid var(--line); border-radius:20px;
+    padding:4px 10px; font-size:11px; color:var(--txt); max-width:100%; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+
+  details { margin:6px 16px 14px; }
+  summary { cursor:pointer; color:var(--muted); font-size:12px; user-select:none; }
+  pre { background:#0a0f1c; border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+    font-size:11px; max-height:230px; overflow:auto; white-space:pre-wrap; margin:8px 0 0; line-height:1.5; }
+  pre .warn { color:var(--warn); } pre .err { color:var(--bad); }
+  pre .info { color:var(--info); } pre .okc { color:var(--ok); }
+
+  .filters { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .pill { padding:6px 14px; border-radius:20px; border:1px solid var(--line); background:var(--card);
+    color:var(--muted); font-size:12px; cursor:pointer; transition:all .15s ease; }
+  .pill:hover { border-color:var(--line2); color:var(--txt); }
+  .pill.active { background:var(--card2); border-color:var(--info); color:var(--info); font-weight:600; }
+
+  .empty { text-align:center; color:var(--muted); padding:40px; grid-column:1/-1; }
+  footer { text-align:center; color:var(--faint); font-size:11px; padding:10px; }
+
+  @media (max-width:720px){ .arrow{display:none} .cards{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
 <header>
-  <h1>&#127909; YouTube Shorts Pipeline Dashboard</h1>
-  <div id="updated">loading&hellip;</div>
+  <div class="brand">
+    <div class="logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 13h4l2-7 4 12 2-5h6" stroke="#071018" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <h1>Shorts Pipeline<small>trending &middot; download &middot; dub &middot; upload &middot; movie-shorts</small></h1>
+  </div>
+  <div class="right">
+    <span id="health" class="b-unknown">&#9679; checking&hellip;</span>
+    <span id="clock"></span>
+    <span id="updated">loading&hellip;</span>
+  </div>
 </header>
+
 <main>
-  <div class="grid" id="grid">loading&hellip;</div>
+  <div class="stats" id="stats"><div class="stat" style="grid-column:1/-1"><div class="k">loading</div></div></div>
+
+  <div class="chain" id="chain"><h3>Pipeline rhythm &mdash; staggered every 2 hours (IST)</h3><div class="nodes">loading&hellip;</div></div>
+
+  <div class="filters" id="filters"></div>
+  <div class="cards" id="grid"><div class="empty">loading&hellip;</div></div>
 </main>
+<footer>auto-refreshes every 15s &middot; next-execution times are estimates</footer>
 
 <script>
-const cols = { ok:'#2ecc71', stale:'#f1c40f', bad:'#e74c3c', unknown:'#8fa0bd' };
+const ORDER = ['trending-agent','downloader','dubber','uploader'];
+const NAMES = { 'trending-agent':'Trending Agent','downloader':'Downloader','dubber':'Dubber',
+                'uploader':'Uploader','movie-shorts-agent':'Movie Shorts' };
+const ICONS = {
+  'trending-agent':'<path d="M3 17l6-6 4 4 8-8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 7h7v7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  'downloader':'<path d="M12 3v12" stroke-width="2" stroke-linecap="round"/><path d="M7 10l5 5 5-5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 21h14" stroke-width="2" stroke-linecap="round"/>',
+  'dubber':'<path d="M3 10h18" stroke-width="2" stroke-linecap="round"/><path d="M5 6h14" stroke-width="2" stroke-linecap="round"/><path d="M5 14h14" stroke-width="2" stroke-linecap="round"/><path d="M3 18h18" stroke-width="2" stroke-linecap="round"/>',
+  'uploader':'<path d="M12 21V9" stroke-width="2" stroke-linecap="round"/><path d="M7 14l5-5 5 5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 21h14" stroke-width="2" stroke-linecap="round"/>',
+  'movie-shorts-agent':'<path d="M4 6h6l2-3h8v12h-6l-2 3H4z" stroke-width="2" stroke-linejoin="round"/>',
+};
+const COLORS = { ok:'#2fd68b', stale:'#f4b942', bad:'#f1556b', unknown:'#7e93b8' };
+const METRICS = {
+  'trending-agent':[['Pool size','pool_size'],['Top shorts','top_count']],
+  'downloader':[['Downloaded','downloaded'],['Distinct','distinct_videos'],['Failed','failed']],
+  'dubber':[['Dubbed','dubbed'],['Segments','segments'],['Found','videos_found']],
+  'uploader':[['Uploaded','uploaded_count']],
+  'movie-shorts-agent':[['Scenes','scenes'],['Movies used','used_count'],['Backups kept','backups']],
+};
 
-function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const size = b => b? (b>=1e9?(b/1e9).toFixed(1)+' GB' : b>=1e6?(b/1e6).toFixed(1)+' MB' : Math.round(b/1e3)+' KB') : null;
 
-function fmt(iso){
-  if(!iso) return 'never';
-  const d = new Date(iso); if(isNaN(d)) return esc(iso);
-  return d.toLocaleString();
-}
+function fmt(iso){ if(!iso) return 'never'; const d=new Date(iso); return isNaN(d)?esc(iso):d.toLocaleString(); }
 function rel(iso){
   if(!iso) return 'never';
-  const d = new Date(iso); if(isNaN(d)) return '';
-  let s = Math.floor((d - Date.now())/1000);
-  if(s>0){
-    if(s<60) return 'in '+s+'s'; if(s<3600) return 'in '+Math.floor(s/60)+'m';
-    if(s<86400) return 'in '+Math.floor(s/3600)+'h'; return 'in '+Math.floor(s/86400)+'d';
-  }
-  s = -s;
-  if(s<60) return s+'s ago'; if(s<3600) return Math.floor(s/60)+'m ago';
-  if(s<86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
-}
-function fmtSize(bytes){
-  if(!bytes) return null;
-  if(bytes>=1073741824) return (bytes/1073741824).toFixed(1)+' GB';
-  if(bytes>=1048576) return (bytes/1048576).toFixed(1)+' MB';
-  return Math.round(bytes/1024)+' KB';
+  const d=new Date(iso); if(isNaN(d)) return '';
+  let s=Math.floor((d-Date.now())/1000);
+  if(s>0){ if(s<60)return 'in '+s+'s'; if(s<3600)return 'in '+Math.floor(s/60)+'m'; if(s<86400)return 'in '+Math.floor(s/3600)+'h'; return 'in '+Math.floor(s/86400)+'d'; }
+  s=-s;
+  if(s<60)return s+'s ago'; if(s<3600)return Math.floor(s/60)+'m ago'; if(s<86400)return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
 }
 
-function kv(k,v){ return `<div class="kv"><span>${esc(k)}</span><span>${v}</span></div>`; }
+let DATA = { agents:[], overview:{} };
+let filter = 'all';
 
-function logBlock(log){
-  const body = (log||[]).map(l=>esc(l)).join('');
-  return `<details><summary>recent log (${(log||[]).length})</summary><pre>${body||'(empty)'}</pre></details>`;
+function stat(k,v,h,accent){ return `<div class="stat" style="--accent:${accent}"><div class="k">${k}</div><div class="v">${v}</div><div class="h">${h||''}</div></div>`; }
+
+function renderStats(o){
+  const t = o.totals||{};
+  const el = document.getElementById('stats');
+  el.innerHTML =
+    stat('Agents up', `${o.running||0}/${o.total||0}`, 'containers running', '#2fd68b') +
+    stat('Trending pool', t.pool_size ?? '&ndash;', 'candidates this cycle', '#4aa8ff') +
+    stat('Downloaded', t.downloaded??0, 'new Shorts fetched', '#4aa8ff') +
+    stat('Dubbed', t.dubbed??0, 'Hindi voices', '#b78bff') +
+    stat('Uploaded', t.uploaded??0, 'to YouTube', '#f4b942') +
+    stat('Movie scenes', t.scenes??0, 'planned this short', '#ff8fb3') +
+    stat('Movies used', t.used??0, 'movie registry', '#ff8fb3') +
+    stat('Backups kept', t.backups??0, '48h retention', '#8ba0c2');
 }
 
-function render(agents){
-  const grid = document.getElementById('grid');
-  grid.innerHTML = agents.map(a=>{
-    const s = a.summary||{};
+function renderChain(agents){
+  const nodes = ORDER.map(id => {
+    const a = agents.find(x=>x.name===id) || {};
     const cs = a.container_status||{};
-    const st = a.status||'unknown';
-    const stLabel = st==='ok'?'ok':st==='stale'?'stale':st==='bad'?'bad':'unknown';
-    const runDot = cs.running ? `<span class="dot" style="background:var(--ok)"></span>` :
-                   `<span class="dot" style="background:${cs.running===false?'var(--bad)':'var(--unk)'}"></span>`;
-
-    let body;
-    if(a.error){ body = `<div class="err">error: ${esc(a.error)}</div>`; }
-    else {
-      const rows = [ kv('last execution', fmt(s.latest_at)+' <span style="color:var(--muted)">('+rel(s.latest_at)+')</span>'),
-                     kv('next execution', a.next_execution? fmt(a.next_execution)+' <span style="color:var(--muted)">('+rel(a.next_execution)+')</span>':'<span style="color:var(--muted)">unknown</span>'),
-                     kv('container', cs.running?'running':'<span style="color:var(--bad)">'+esc(cs.status||'unknown')+'</span>') ];
-      if(s.source_video_id) rows.push(kv('current movie', '<span title="'+esc(s.source_video_id)+'">'+esc(String(s.source_video_id).slice(0,8))+'</span>'));
-      if(s.scenes!==undefined) rows.push(kv('scenes', s.scenes));
-      if(s.used_count!==undefined) rows.push(kv('movies used', s.used_count));
-      if(s.backups!==undefined) rows.push(kv('backups kept', s.backups));
-      const sz = fmtSize(s.final_size);
-      if(sz) rows.push(kv('last short size', sz));
-      if(s.pool_size!==undefined) rows.push(kv('pool size', s.pool_size));
-      if(s.top_count!==undefined) rows.push(kv('trending shorts', s.top_count));
-      if(s.distinct_videos!==undefined) rows.push(kv('distinct videos', s.distinct_videos));
-      if(s.downloaded!==undefined) rows.push(kv('downloaded', s.downloaded));
-      if(s.videos_found!==undefined) rows.push(kv('videos found', s.videos_found));
-      if(s.dubbed!==undefined) rows.push(kv('dubbed', s.dubbed));
-      if(s.skipped!==undefined) rows.push(kv('skipped / no speech', s.skipped));
-      if(s.segments!==undefined) rows.push(kv('speech segments', s.segments));
-      if(s.uploaded_count!==undefined) rows.push(kv('uploaded', s.uploaded_count));
-      if(s.failed!==undefined && s.failed>0) rows.push(kv('failed', '<span class="err">'+s.failed+'</span>'));
-
-      let list = '';
-      if(s.top_titles) list = `<div class="toplist">`+s.top_titles.slice(0,5).map(t=>'&bull; '+esc(t)).join('<br>')+`</div>`;
-      if(s.uploaded) list = `<div class="uplist">`+s.uploaded.map(n=>'&bull; '+esc(n)).join('<br>')+`</div>`;
-
-      const errs = (s.errors||[]).filter(Boolean);
-      const errHtml = errs.length? `<div class="err" style="margin-top:6px">`+errs.slice(0,3).map(e=>esc(e)).join('<br>')+`</div>`:'';
-      body = rows.join('') + (list? `<div class="summary">${list}</div>`:'') + errHtml + logBlock(a.recent_log);
-    }
-    return `<div class="card">
-      <div class="card-head">${runDot}<h2>${esc(a.name)}</h2>
-        <span class="badge b-${stLabel}">${stLabel}</span></div>
-      <div class="card-body">${body}</div></div>`;
-  }).join('');
+    const cls = cs.running ? 'node running' : 'node';
+    return `<div class="${cls}">
+      <div class="t"><span class="dot ${cs.running?'on':(cs.running===false?'off':'unk')}"></span>${NAMES[id]||id}</div>
+      <div class="s">${esc(a.schedule||'')}</div>
+      <div class="nx">next <span class="c" data-nx="${esc(a.next_execution||'')}">${fmt(a.next_execution)}</span></div>
+    </div>`;
+  });
+  const joiner = '<span class="arrow">&#8594;</span>';
+  document.getElementById('chain').querySelector('.nodes').innerHTML = nodes.join(joiner);
 }
+
+function metricRows(a){
+  const s = a.summary||{};
+  return (METRICS[a.name]||[]).map(([k,f])=>{
+    let v = s[f]; let cls='';
+    if(f==='failed'){ cls = v>0?'err':''; }
+    if(v===undefined||v===null) return '';
+    return `<div class="metric"><div class="k">${k}</div><div class="v ${cls}">${esc(v)}</div></div>`;
+  }).filter(Boolean).join('');
+}
+
+function specialList(a){
+  const s = a.summary||{};
+  let title='', items=[];
+  if(s.top_titles){ title='trending this cycle'; items=s.top_titles.slice(0,6); }
+  else if(s.uploaded){ title='recent uploads'; items=s.uploaded.slice(-6).reverse(); }
+  else if(s.source_video_id){ title='current movie'; items=[s.source_video_id]; }
+  if(!items.length) return '';
+  const chips = items.map(t=>`<span class="chip" title="${esc(t)}">${esc(t)}</span>`).join('');
+  return `<div class="list"><div class="lt">${title}</div><div class="chips">${chips}</div></div>`;
+}
+
+function logBlock(a){
+  const log = a.recent_log||[];
+  let body='';
+  for(const l of log){
+    const low=l.toLowerCase(); let cls='';
+    if(low.includes('error')||low.includes('failed')||low.includes('traceback')) cls='err';
+    else if(low.includes('warn')||low.includes('retry')) cls='warn';
+    else if(low.includes('info')) cls='info';
+    else if(low.includes('dubbed')||low.includes('uploaded')||low.includes('downloaded')||low.includes('done')) cls='okc';
+    body += `<span class="${cls}">${esc(l)}</span>`;
+  }
+  return `<details><summary>recent log (${log.length})</summary><pre>${body||'(empty)'}</pre></details>`;
+}
+
+function card(a){
+  const s=a.summary||{}, cs=a.container_status||{};
+  const st=a.status||'unknown';
+  const stLabel = st==='ok'?'ok':st==='stale'?'stale':st==='bad'?'bad':'unknown';
+  const accent = COLORS[st] || '#7e93b8';
+  const dotCls = cs.running?'on':(cs.running===false?'off':'unk');
+  const ico = ICONS[a.name] || ICONS['movie-shorts-agent'];
+  const sz = size(s.final_size);
+  if(a.error) return `<div class="card"><div class="card-head"><div class="ico" style="color:var(--bad)">${ico}</div><div class="ttl"><h2>${esc(a.name)}</h2></div></div><div class="times" style="padding:14px 16px"><div class="err" style="color:var(--bad)">error: ${esc(a.error)}</div></div></div>`;
+
+  let rows = `
+    <div class="trow"><span>container</span><span class="mono">${cs.running?'running':esc(cs.status||'unknown')}</span></div>
+    <div class="trow"><span>last execution</span><span class="mono">${fmt(s.latest_at)} <span style="color:var(--faint)">(${rel(s.latest_at)})</span></span></div>
+    <div class="trow"><span>next execution</span><span class="mono" data-nx="${esc(a.next_execution||'')}">${a.next_execution?'<span class="count"></span> '+fmt(a.next_execution):'<span style="color:var(--muted)">unknown</span>'}</span></div>
+    <div class="trow"><span>schedule</span><span class="mono">${esc(a.schedule||'')}</span></div>`;
+  if(s.failed!==undefined && s.failed>0) rows += `<div class="trow"><span>failed</span><span class="mono" style="color:var(--bad)">${s.failed}</span></div>`;
+  if(sz) rows += `<div class="trow"><span>last short size</span><span class="mono">${sz}</span></div>`;
+
+  const errs=(s.errors||[]).filter(Boolean);
+  const errHtml = errs.length? `<div class="list"><div class="lt">errors</div>${errs.slice(0,3).map(e=>`<span class="chip" style="color:var(--bad);border-color:rgba(241,85,107,.4)">${esc(e)}</span>`).join('')}</div>`:'';
+
+  return `<div class="card" style="--accent:${accent}">
+    <div class="card-head">
+      <div class="ico" style="color:${accent}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">${ico}</svg></div>
+      <div class="ttl"><h2>${esc(NAMES[a.name]||a.name)}<span class="dot ${dotCls}"></span></h2>
+        <div class="sub">${esc(a.container)}</div></div>
+      <span class="badge b-${stLabel}">${stLabel}</span>
+    </div>
+    <div class="metrics">${metricRows(a)}</div>
+    <div class="times">${rows}</div>
+    ${specialList(a)}${errHtml}
+    ${logBlock(a)}
+  </div>`;
+}
+
+function render(){
+  const agents = DATA.agents||[];
+  renderStats(DATA.overview||{});
+  renderChain(agents);
+  const el = document.getElementById('grid');
+  const list = filter==='all' ? agents : agents.filter(a=>(a.status||'unknown')===filter);
+  el.innerHTML = list.length ? list.map(card).join('') : '<div class="empty">no agents match this filter</div>';
+  tick();
+}
+
+function tick(){
+  document.querySelectorAll('[data-nx]').forEach(el=>{
+    if(!el.dataset.nx || el.dataset.nx==='never') return;
+    el.querySelectorAll('.count').forEach(c=>c.textContent = rel(el.dataset.nx));
+  });
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+  document.getElementById('updated').textContent = DATA.generated_at? 'updated '+rel(DATA.generated_at) : '';
+}
+
+function renderHealth(){
+  const o=DATA.overview||{};
+  const h=document.getElementById('health');
+  const map={ok:['b-ok','&#9679; healthy'],degraded:['b-stale','&#9679; degraded'],down:['b-bad','&#9679; down']};
+  const [cls,label]=map[o.health]||map.ok;
+  h.className='badge '+cls; h.innerHTML=label;
+}
+
+function renderFilters(){
+  const el=document.getElementById('filters');
+  const counts={all: DATA.agents.length, ok:0, stale:0, bad:0, unknown:0};
+  (DATA.agents||[]).forEach(a=>{ counts[a.status||'unknown']=(counts[a.status||'unknown']||0)+1; });
+  const mk=(k,lbl)=>`<button class="pill ${filter===k?'active':''}" onclick="setFilter('${k}')">${lbl} (${counts[k]||0})</button>`;
+  el.innerHTML = mk('all','All')+mk('ok','Healthy')+mk('stale','Stale')+mk('bad','Failed')+mk('unknown','Unknown');
+}
+function setFilter(f){ filter=f; renderFilters(); render(); }
 
 async function refresh(){
   try{
-    const r = await fetch('/api/agents');
-    const d = await r.json();
-    render(d.agents||[]);
-    document.getElementById('updated').textContent = 'updated '+new Date(d.generated_at).toLocaleString();
-  }catch(e){ document.getElementById('updated').textContent = 'refresh failed'; }
+    const r=await fetch('/api/agents');
+    const d=await r.json();
+    DATA=d; renderFilters(); renderHealth(); render();
+  }catch(e){ document.getElementById('updated').textContent='refresh failed'; }
 }
 refresh();
 setInterval(refresh, 15000);
+setInterval(tick, 1000);
 </script>
 </body>
 </html>

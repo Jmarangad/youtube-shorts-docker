@@ -298,6 +298,20 @@ def _read_log(path: str, lines: int = 30) -> list[str]:
         return []
 
 
+def _schedule_label(fields: list[str]) -> str:
+    """Human-readable label for a 5-field cron expression."""
+    if len(fields) < 2:
+        return ""
+    minute, hour = fields[0], fields[1]
+    if hour == "*/2":
+        return f"every 2 h at :{minute} IST"
+    if hour == "*":
+        return f"hourly at :{minute} IST"
+    if hour.isdigit():
+        return f"daily {int(hour):02d}:{int(minute):02d} IST"
+    return f"cron {minute} {hour} * * *"
+
+
 def _agent_card(agent: dict) -> dict:
     client = _docker_client()
     container = _container_status(agent["container"])
@@ -315,23 +329,55 @@ def _agent_card(agent: dict) -> dict:
             status = "unknown"
 
     next_execution = None
+    schedule = ""
     if "cron_file" in agent:
         fields = _read_cron_fields(client, agent["container"], agent["cron_file"], agent["cron_default"])
         next_execution = _next_cron(fields, _AGENT_TZ)
+        schedule = _schedule_label(fields)
     elif "interval_hours" in agent:
         started = (container or {}).get("started_at")
         next_execution = _next_from_log(client, agent["container"], agent["interval_hours"], started)
+        schedule = f"every {agent['interval_hours']:g} h"
 
     return {
         "name": agent["name"],
         "container": agent["container"],
         "container_status": container,
+        "schedule": schedule,
         "last_execution": last_ts,
         "next_execution": next_execution,
         "status": status,
         "summary": summary,
         "recent_log": log,
     }
+
+
+def _overview(cards: list[dict]) -> dict:
+    """Aggregate pipeline health + totals for the dashboard header."""
+    total = len(cards)
+    running = sum(1 for c in cards if (c.get("container_status") or {}).get("running"))
+    ok = sum(1 for c in cards if c.get("status") == "ok")
+    stale = sum(1 for c in cards if c.get("status") == "stale")
+    bad = sum(1 for c in cards if c.get("status") == "bad")
+    totals = {"downloaded": 0, "dubbed": 0, "uploaded": 0,
+              "pool_size": None, "backups": 0, "used": 0, "scenes": 0}
+    for c in cards:
+        s = c.get("summary") or {}
+        totals["downloaded"] += int(s.get("downloaded") or 0)
+        totals["dubbed"] += int(s.get("dubbed") or 0)
+        totals["uploaded"] += int(s.get("uploaded_count") or 0)
+        totals["backups"] += int(s.get("backups") or 0)
+        totals["used"] += int(s.get("used_count") or 0)
+        totals["scenes"] += int(s.get("scenes") or 0)
+        if totals["pool_size"] is None:
+            totals["pool_size"] = s.get("pool_size")
+    health = "ok"
+    if bad or (stale and not running):
+        health = "degraded"
+    if bad and not ok:
+        health = "down"
+    return {"total": total, "running": running, "ok": ok, "stale": stale,
+            "bad": bad, "health": health, "totals": totals}
 
 
 @app.route("/api/agents")
@@ -342,7 +388,8 @@ def api_agents():
             cards.append(_agent_card(agent))
         except Exception as exc:
             cards.append({"name": agent["name"], "error": str(exc)})
-    return jsonify({"agents": cards, "generated_at": _utcnow().isoformat()})
+    return jsonify({"agents": cards, "overview": _overview(cards),
+                    "generated_at": _utcnow().isoformat()})
 
 
 @app.route("/")
