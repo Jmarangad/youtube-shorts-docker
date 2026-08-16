@@ -23,15 +23,16 @@ python -m downloader \
     --whisper-model "${WHISPER_MODEL:-tiny}" \
     || echo "initial run failed"
 
-# Schedule the hourly job (every hour at minute 0, IST), after the trending
-# agent refreshes latest.json. Already-downloaded videos are skipped.
+# Schedule the every-2-hour job (even hours at minute 10, IST), after the
+# trending agent (minute 0) refreshes latest.json. Only NEW videos are
+# downloaded; already-downloaded ones are skipped.
 cat > /etc/cron.d/downloader <<EOF
 SHELL=/bin/sh
 PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/sbin:/bin
-0 * * * * root cd /app && python -m downloader --reports-dir /reports --download-dir /downloads --whisper-model "${WHISPER_MODEL:-tiny}" >> /var/log/downloader.log 2>&1
+10 */2 * * * root cd /app && python -m downloader --reports-dir /reports --download-dir /downloads --whisper-model "${WHISPER_MODEL:-tiny}" >> /var/log/downloader.log 2>&1
 EOF
 chmod 644 /etc/cron.d/downloader
 
 touch /var/log/downloader.log
-echo "[entrypoint] starting cron; hourly downloader job installed"
+echo "[entrypoint] starting cron; 2-hourly downloader job installed"
 exec cron -f -L 2

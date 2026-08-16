@@ -230,13 +230,39 @@ def detect_languages(results: list[DownloadResult],
                            res.video_id, exc)
 
 
+def _already_downloaded(out_dir: str | Path) -> set[str]:
+    """video_ids that already have a downloaded file (from manifest.json)."""
+    path = Path(out_dir) / "manifest.json"
+    ids: set[str] = set()
+    if not path.exists():
+        return ids
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ids
+    for r in data.get("results") or []:
+        if r.get("file") and r.get("video_id"):
+            ids.add(r["video_id"])
+    return ids
+
+
 def run_download(reports_dir: str | Path, out_dir: str | Path,
                  day: Optional[date] = None, limit: Optional[int] = None,
                  model_name: str = "tiny") -> dict:
-    """Full pipeline: read reports, download MP4s, detect languages."""
+    """Full pipeline: read reports, download MP4s, detect languages.
+
+    Videos already present in ``out_dir/manifest.json`` are skipped so each
+    scheduled run only fetches NEW Shorts (every-2h cycle stays incremental).
+    """
     files = report_files(reports_dir, day)
     videos = collect_videos(files)
     titles = latest_titles(reports_dir)
+    done = _already_downloaded(out_dir)
+    if done:
+        fresh = [v for v in videos if v["id"] not in done]
+        logger.info("skipping %d already-downloaded videos (%d to download)",
+                    len(videos) - len(fresh), len(fresh))
+        videos = fresh
     logger.info("reports=%d distinct_videos=%d titles_from_latest=%d",
                 len(files), len(videos), len(titles))
     results = download_mp4s(videos, out_dir, limit=limit, titles=titles)

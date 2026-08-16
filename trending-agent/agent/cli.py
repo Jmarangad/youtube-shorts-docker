@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import shlex
@@ -94,6 +95,24 @@ def build_parser() -> argparse.ArgumentParser:
                         version=f"%(prog)s {__version__}")
     return parser
 
+def _seen_video_ids(output: str) -> set[str]:
+    """video_ids already reported, so each cycle surfaces fresh Shorts."""
+    seen: set[str] = set()
+    out = Path(output)
+    if not out.exists():
+        return seen
+    for path in out.glob("trending-shorts-*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for item in data.get("top") or []:
+            vid = item.get("video_id")
+            if vid:
+                seen.add(vid)
+    return seen
+
+
 def find_top(args: argparse.Namespace) -> AgentResult:
     scraper = ShortScraper(pool_size=args.pool_size, lang=args.lang,
                            geo_country=args.geo_country, api_key=args.api_key,
@@ -103,6 +122,13 @@ def find_top(args: argparse.Namespace) -> AgentResult:
         if queries:
             scraper.search_queries = tuple(queries)
     entries, strategy = scraper.fetch(source=args.source)
+    seen = _seen_video_ids(args.output)
+    if seen:
+        fresh = [e for e in entries if (e.get("id") if isinstance(e, dict) else e.video_id) not in seen]
+        if len(fresh) < len(entries):
+            logger.info("excluded %d already-reported videos (kept %d fresh)",
+                        len(entries) - len(fresh), len(fresh))
+            entries = fresh
     shorts = rank_pool(entries, top=args.top, max_duration=args.max_duration,
                        min_views=args.min_views, language=args.language)
     return AgentResult(top=shorts, pool_size=len(entries), strategy=strategy)

@@ -1,12 +1,16 @@
 # YouTube Shorts Docker Deployment
 
-Containerized deployment of three Python agents:
+Containerized deployment of the trending→download→dub→upload Shorts pipeline
+plus the movie-shorts agent. All four Shorts agents run **every 2 hours** in
+a staggered chain (IST) so each cycle uploads only unique, not-yet-uploaded
+videos:
 
-| Service | Container | Schedule |
+| Service | Container | Schedule (IST) |
 |---|---|---|
-| **trending-agent** | `youtube-trending-agent` | hourly (top of hour, IST) |
-| **downloader** | `youtube-shorts-downloader` | daily 23:30 IST |
-| **dubber** | `youtube-shorts-dubber` | daily 23:40 IST |
+| **trending-agent** | `youtube-trending-agent` | even hours at :00 (excludes already-reported Shorts) |
+| **downloader** | `youtube-shorts-downloader` | even hours at :10 (only new videos) |
+| **dubber** | `youtube-shorts-dubber` | even hours at :25 (only undubbed videos) |
+| **uploader** | `youtube-shorts-uploader` | even hours at :45 (only not-yet-uploaded videos) |
 
 - `trending-agent` uses the YouTube Data API v3 to find Shorts trending in
   the current hour across the entire world, ranks them by views-per-hour
@@ -43,9 +47,9 @@ docker compose up -d --build
 
 ```bash
 docker compose ps
-docker compose logs trending-agent     # hourly runs
-docker compose logs downloader         # daily runs
-docker compose logs dubber             # daily Hindi dubbing
+docker compose logs trending-agent     # 2-hourly runs
+docker compose logs downloader         # 2-hourly runs
+docker compose logs dubber             # 2-hourly Hindi dubbing
 docker volume ls                       # reports, downloads, whisper-cache, dubbed
 ```
 
