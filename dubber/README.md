@@ -28,6 +28,9 @@ Re-dubs downloaded Shorts into **Hindi** with speaker-aware voices.
      is smoothed, so transitions between speech, music, and silence are
      seamless instead of abrupt.
 8. **Mux** — the mixed track replaces the video's audio; video is unchanged.
+9. **Cleanup** — the original source MP4 is deleted from the downloader
+   directory after a successful dub; only the dubbed copy is kept.
+   Videos with no speech detected are left in place.
 
 ## Usage
 

@@ -63,6 +63,30 @@ class DownloadResult:
         }
 
 
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+def _cookies_file() -> Optional[str]:
+    """Path to a yt-dlp cookies file from ``YT_DLP_COOKIES`` if it exists.
+
+    The downloader runs headless in a container, so ``--cookies-from-browser``
+    is not an option. When the user exports their YouTube cookies to a text
+    file and points ``YT_DLP_COOKIES`` at it, yt-dlp authenticates with it
+    and the "Sign in to confirm you're not a bot" block goes away.
+    """
+    raw = os.environ.get("YT_DLP_COOKIES")
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.exists():
+        logger.warning("YT_DLP_COOKIES set but %s does not exist", path)
+        return None
+    return str(path)
+
+
 def _ffmpeg_bin_dir() -> str:
     try:
         from static_ffmpeg import run
@@ -167,7 +191,26 @@ def download_mp4s(videos: list[dict], out_dir: str | Path,
         "ignoreerrors": True,
         "socket_timeout": 30,
         "ffmpeg_location": _ffmpeg_bin_dir(),
+        "retries": 3,
+        "fragment_retries": 3,
+        "extractor_args": {
+            "youtube": {"player_client": ["android", "ios", "web_safari", "web"]},
+        },
+        "http_headers": {
+            "User-Agent": _BROWSER_UA,
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
     }
+
+    cookies = _cookies_file()
+    if cookies:
+        base_opts["cookiefile"] = cookies
+        logger.info("using YouTube cookies from %s", cookies)
+    else:
+        logger.info(
+            "no YT_DLP_COOKIES set; using android/ios player clients to avoid bot checks"
+        )
 
     results: list[DownloadResult] = []
     used_bases: dict[str, int] = {}

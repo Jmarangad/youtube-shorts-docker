@@ -570,12 +570,26 @@ def dub_video(video: Path, out_dir: str | Path, model_name: str = "base",
         res.out = str(out_path)
         logger.info("%s -> %s (%d segments, %d music, voices=%s)",
                     video.stem, out_path.name, len(segments), music, voice_counts)
+        _remove_source(video)
     except Exception as exc:
         res.error = str(exc)
         logger.error("dub failed for %s: %s", video.stem, exc)
     finally:
         _rmtree(work)
     return res
+
+
+def _remove_source(video: Path) -> None:
+    """Delete the original video from the downloader directory after dubbing.
+
+    The dubbed MP4 in the out dir is the only copy we need going forward, so
+    remove the source to keep the downloader directory from filling up.
+    """
+    try:
+        video.unlink()
+        logger.info("%s: deleted original from downloads", video.name)
+    except OSError as exc:
+        logger.warning("failed to delete original %s: %s", video, exc)
 
 
 def run_dub(downloads_dir: str | Path, out_dir: str | Path,

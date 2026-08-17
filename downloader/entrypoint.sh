@@ -21,6 +21,7 @@ python -m downloader \
     --reports-dir /reports \
     --download-dir /downloads \
     --whisper-model "${WHISPER_MODEL:-tiny}" \
+    ${YT_DLP_COOKIES:+--cookies "$YT_DLP_COOKIES"} \
     || echo "initial run failed"
 
 # Schedule the every-2-hour job (even hours at minute 10, IST), after the
@@ -29,7 +30,7 @@ python -m downloader \
 cat > /etc/cron.d/downloader <<EOF
 SHELL=/bin/sh
 PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/sbin:/bin
-10 */2 * * * root cd /app && python -m downloader --reports-dir /reports --download-dir /downloads --whisper-model "${WHISPER_MODEL:-tiny}" >> /var/log/downloader.log 2>&1
+10 */2 * * * root cd /app && python -m downloader --reports-dir /reports --download-dir /downloads --whisper-model "${WHISPER_MODEL:-tiny}" ${YT_DLP_COOKIES:+--cookies "$YT_DLP_COOKIES"} >> /var/log/downloader.log 2>&1
 EOF
 chmod 644 /etc/cron.d/downloader
 

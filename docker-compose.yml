@@ -21,10 +21,12 @@ services:
     environment:
       - TZ=Asia/Kolkata
       - WHISPER_MODEL=${WHISPER_MODEL:-tiny}
+      - YT_DLP_COOKIES=${YT_DLP_COOKIES:-}
     volumes:
       - reports:/reports
       - downloads:/downloads
       - whisper-cache:/root/.cache/whisper
+      - ${YT_DLP_COOKIES_DIR:-./config}:/cookies:ro
 
   dubber:
     build: ./dubber

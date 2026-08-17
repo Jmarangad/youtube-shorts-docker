@@ -18,6 +18,19 @@ python -m venv .venv && .venv/bin/pip install -e .[test]
 No API key is needed. ffmpeg comes from the bundled `static-ffmpeg` wheel;
 Whisper downloads its model (`tiny` by default) on first run.
 
+YouTube may occasionally block downloads with *"Sign in to confirm you're not
+a bot"*. This image already bypasses that for most videos by rotating
+`player_client`s (`android`/`ios`/`web_safari`/`web`) with a desktop Chrome
+User-Agent. If a video still refuses, export your YouTube cookies and pass
+them via `--cookies` (or the `YT_DLP_COOKIES` env var); in docker compose,
+set `YT_DLP_COOKIES` to a path inside the container (default cookies dir is
+mounted from `./config`):
+
+```bash
+export YT_DLP_COOKIES=/cookies/cookies.txt   # exported via browser extension
+docker compose up -d --build downloader
+```
+
 ## Usage
 
 ```bash

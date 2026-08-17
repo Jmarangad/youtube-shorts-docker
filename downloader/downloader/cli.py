@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shlex
 import subprocess
 import sys
@@ -57,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="max videos to download (default all distinct)")
     parser.add_argument("--whisper-model", default="tiny",
                         help="whisper model for language detection (default tiny)")
+    parser.add_argument("--cookies", default=None,
+                        help="path to a yt-dlp cookies.txt file (or set YT_DLP_COOKIES)")
     parser.add_argument("--install-cron", action="store_true",
                         help="install a daily (23:30) crontab entry")
     parser.add_argument("--cron-schedule", default="30 23 * * *",
@@ -82,6 +85,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             logger.error("invalid --report-date %r (expected YYYY-MM-DD)",
                          args.report_date)
             return 2
+
+    if args.cookies:
+        os.environ["YT_DLP_COOKIES"] = args.cookies
 
     manifest = run_download(args.reports_dir, args.download_dir, day=day,
                             limit=args.download_limit,
