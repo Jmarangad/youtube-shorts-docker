@@ -11,6 +11,7 @@ videos:
 | **downloader** | `youtube-shorts-downloader` | even hours at :10 (only new videos) |
 | **dubber** | `youtube-shorts-dubber` | even hours at :25 (only undubbed videos) |
 | **uploader** | `youtube-shorts-uploader` | even hours at :45 (only not-yet-uploaded videos) |
+| **orchestrator** | `youtube-shorts-orchestrator` | even hours at :05 (LangGraph, drives all four agents) |
 
 - `trending-agent` uses the YouTube Data API v3 to find Shorts trending in
   the current hour across the entire world, ranks them by views-per-hour
@@ -30,6 +31,15 @@ videos:
   starts with `--clean`, deleting previously dubbed files.
 - Scheduling runs **inside** the containers via cron, so no host cron is
   needed.
+- `orchestrator` (optional) is a **LangGraph** state machine
+  (`discover → download → dub → upload`) that drives the four agents through
+  the shared Docker socket instead of relying on the staggered cron chain.
+  Each node `docker exec`s the matching agent container, then conditional
+  edges skip downstream stages when a stage produced nothing new, so idle
+  cycles stay cheap. It runs one cycle on startup and every 2 hours via cron;
+  point `docker compose` at it by adding the `orchestrator` service (it is
+  defined in `docker-compose.yml`). If you prefer the staggered-chain mode,
+  stop the orchestrator and keep the per-agent crons.
 
 ## Prerequisites
 

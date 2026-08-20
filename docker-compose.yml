@@ -76,6 +76,27 @@ services:
       - ../movie-shorts-agent/output:/movie-shorts/output:ro
       - /var/run/docker.sock:/var/run/docker.sock
 
+  orchestrator:
+    build: ./orchestrator
+    image: youtube-shorts-orchestrator:latest
+    container_name: youtube-shorts-orchestrator
+    restart: unless-stopped
+    depends_on:
+      - trending-agent
+      - downloader
+      - dubber
+      - uploader
+    environment:
+      - TZ=Asia/Kolkata
+      - YT_DLP_COOKIES=${YT_DLP_COOKIES:-}
+      - YT_PRIVACY=${YT_PRIVACY:-unlisted}
+    volumes:
+      - reports:/reports
+      - downloads:/downloads
+      - dubbed:/dubbed
+      - uploader-config:/config
+      - /var/run/docker.sock:/var/run/docker.sock
+
 volumes:
   reports:
   downloads:
